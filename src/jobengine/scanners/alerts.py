@@ -16,6 +16,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote
 
+from ..gmail import part, service
 from ..models import Posting
 
 log = logging.getLogger(__name__)
@@ -167,45 +168,11 @@ def parse_alert_html(html_body: str) -> list[Posting]:
     return list(jobs.values())
 
 
-def _html_part(payload: dict) -> str:
-    """Find the text/html part of a Gmail API message payload."""
-    if payload.get("mimeType") == "text/html" and payload.get("body", {}).get("data"):
-        return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", "replace")
-    for part in payload.get("parts", []) or []:
-        found = _html_part(part)
-        if found:
-            return found
-    return ""
-
-
 def scan(settings: dict, root: Path) -> list[Posting]:
     """Read unread messages under the Gmail label, parse them, then mark them read."""
-    try:
-        from google.auth.transport.requests import Request
-        from google.oauth2.credentials import Credentials
-        from google_auth_oauthlib.flow import InstalledAppFlow
-        from googleapiclient.discovery import build
-    except ImportError:
-        log.warning('Gmail libraries not installed; run: pip install -e ".[gmail]"')
+    gmail = service(settings, root)
+    if gmail is None:
         return []
-
-    scopes = ["https://www.googleapis.com/auth/gmail.modify"]
-    token_path = root / settings["token_path"]
-    creds = (
-        Credentials.from_authorized_user_file(token_path, scopes) if token_path.exists() else None
-    )
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                root / settings["credentials_path"], scopes
-            )
-            creds = flow.run_local_server(port=0)
-        token_path.parent.mkdir(parents=True, exist_ok=True)
-        token_path.write_text(creds.to_json())
-
-    gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
     labels = gmail.users().labels().list(userId="me").execute().get("labels", [])
     label_id = next((lb["id"] for lb in labels if lb["name"] == settings["gmail_label"]), None)
     if not label_id:
@@ -223,7 +190,7 @@ def scan(settings: dict, root: Path) -> list[Posting]:
     jobs: list[Posting] = []
     for ref in listing.get("messages", []):
         msg = gmail.users().messages().get(userId="me", id=ref["id"], format="full").execute()
-        found = parse_alert_html(_html_part(msg.get("payload", {})))
+        found = parse_alert_html(part(msg.get("payload", {}), "text/html"))
         log.info("alert email %s: %d jobs", ref["id"], len(found))
         jobs.extend(found)
         gmail.users().messages().modify(
