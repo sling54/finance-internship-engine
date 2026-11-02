@@ -1,0 +1,30 @@
+# AI fit score: your local model (LM Studio) reads every kept role and scores it 1-5.
+# Edit "what_i_want" in plain English; the AI follows it. No code changes needed.
+# After editing, run `jobengine scan --rescore` so old scores are redone.
+
+enabled: true
+
+lm_studio:
+  url: http://localhost:1234/v1   # LM Studio > Developer > Start Server
+  model: qwen3.6-35b-a3b          # part of the model name is enough; blank = first chat model
+  timeout_seconds: 120
+  max_tokens: 1024
+
+# Long descriptions are cut to this many characters to keep each check fast.
+max_description_chars: 4000
+
+what_i_want: |
+  Top priority: trading, quantitative, derivatives, options, futures and market-making internships
+  (prop trading firms, hedge funds, market makers, bank sales & trading).
+  Next: buy-side investing roles (portfolio management, investment research, asset management,
+  family offices, risk). Then data analytics and software roles in finance, then wealth management.
+  I do not want investment banking, M&A, audit, tax, accounting or sales-quota roles.
+  I prefer roles that pay well. I'm strong on markets and derivatives, still building my math and
+  programming, so very math-heavy quant research roles are a stretch but still worth applying to.
+
+rubric: |
+  5 = trading, quant or derivatives role I'm a realistic candidate for
+  4 = strong fit: buy-side or markets role, or a quant role that's a stretch
+  3 = acceptable: data, software or other finance role related to my goals
+  2 = weak: mostly unrelated duties, sales-heavy, or clearly out of reach
+  1 = not a fit: wrong division, investment banking in disguise, wrong degree level or not an internship

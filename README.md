@@ -30,7 +30,8 @@ flowchart TD
     E --> S[Season: detect, drop past terms]
     S --> L[Location: US-wide or 1-hour zone]
     L --> P[Already applied? check tracker]
-    P --> O[(jobs_latest.csv<br/>rejected_DATE.csv)]
+    P --> F[AI fit score 1–5<br/>local model in LM Studio]
+    F --> O[(jobs_latest.csv<br/>rejected_DATE.csv)]
 ```
 
 | # | Source | How it's read | Module |
@@ -61,6 +62,20 @@ written to `rejected_DATE.csv` with its reason.
 Roles the engine can't judge are kept but flagged for review: `check season`, `check location`,
 `check drive time`, `check division`. New roles since the last run are flagged `new`.
 
+## AI fit score
+
+After filtering, a local model running in [LM Studio](https://lmstudio.ai) reads each kept role's
+description next to my profile and resume and scores it 1–5 with a one-line reason
+(`fit_score`, `fit_reason` columns). It also settles the flagged roles, such as a plain
+"Summer Analyst" whose division only the description reveals. Nothing leaves the laptop.
+
+- **What it looks for** is plain English in `config/scoring.yml` (`what_i_want` and `rubric`).
+- **Cached:** scores are saved in `data/scores.json`, so a daily run only scores new roles.
+  Editing `scoring.yml`, the profile or the resume re-scores everything automatically.
+- **Never blocks a scan:** if LM Studio isn't running, the scan finishes without scores. After
+  3 failed replies in a row it stops asking and keeps what it has.
+- The AI never drops a role. It only scores it, so a wrong call costs a lower rank, not a lost job.
+
 **De-duplication.** The same role often appears in several sources with different wording
 ("Quantitative Trading Intern - Summer 2027 (DV Equities)" vs "Quantitative Trading Intern -
 DV Equities", "DV Trading" vs "DV Trading LLC"). Companies are matched with legal suffixes
@@ -90,6 +105,7 @@ Results land in `data/jobs_latest.csv`. Useful options:
 
 ```bash
 jobengine scan --only simplify kadoa    # just these sources
+jobengine scan --no-ai                  # skip the AI fit score
 jobengine -v scan                       # log every source call
 pip install -e ".[jobspy]"              # enable job boards (set jobspy.enabled: true)
 pip install -e ".[gmail]"               # enable alert emails (set alert_emails.enabled: true)
@@ -108,18 +124,20 @@ committed `profile.example.yml` holds fake data, and the tests always run agains
 pytest -q
 ```
 
-57 tests cover each source parser, each filter (including the five location cases from the
-design), de-duplication and an end-to-end run against a fixture tracker spreadsheet. GitHub
+84 tests cover each source parser, each filter (including the five location cases from the
+design), de-duplication, the AI scorer (with a fake LM Studio) and an end-to-end run against a
+fixture tracker spreadsheet. GitHub
 Actions runs lint and tests on Python 3.10 and 3.12 on every push.
 
 ## Project layout
 
 ```
-config/          titles.yml, firms.yml, sources.yml, profile.example.yml
+config/          titles.yml, firms.yml, sources.yml, scoring.yml, profile.example.yml
 src/jobengine/
   scanners/      ats.py, lists.py, boards.py, alerts.py
   filters/       titles.py, eligibility.py, season.py, location.py, dedup.py, applied.py
-  pipeline.py    collect -> dedupe -> filter -> CSV
+  pipeline.py    collect -> dedupe -> filter -> AI score -> CSV
+  scorer.py      LM Studio fit score, cached in data/scores.json
   zone.py        OpenRouteService drive-time zone
   cli.py         `jobengine scan`, `jobengine zone`
 tests/           pytest suite and fixtures
@@ -128,7 +146,7 @@ tests/           pytest suite and fixtures
 ## Roadmap
 
 - [x] Collect from six sources, de-duplicate, filter by title, eligibility, season, location
-- [ ] Fit score (1–5) for each role from a local LLM, weighted by relevance, skills, pay, odds
+- [x] Fit score (1–5) for each role from a local LLM, with a one-line reason
 - [ ] Application packets: tailored resume and prefilled answers (submission stays manual)
 - [ ] Tracker sync: Gmail status emails update the application spreadsheet
 - [ ] Outreach: recruiter contact drafts, sent only after approval
