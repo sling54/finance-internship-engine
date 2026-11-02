@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import sys
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
@@ -23,6 +25,19 @@ from .scorer import ScoreReport, score_jobs
 from .zone import DriveZone
 
 log = logging.getLogger(__name__)
+
+NAMES = {
+    "ats": "firm career pages",
+    "simplify": "SimplifyJobs list",
+    "kadoa": "Kadoa quant list",
+    "jobspy": "LinkedIn, Indeed, ZipRecruiter, Google (slowest)",
+    "alert_emails": "job-alert emails",
+}
+
+
+def say(msg: str, end: str = "\n") -> None:
+    """Progress for the person watching. Goes to stderr so it never mixes with results."""
+    print(msg, end=end, file=sys.stderr, flush=True)
 
 
 @dataclass
@@ -59,11 +74,15 @@ def collect(cfg: Config, only: set[str] | None = None, root: Path = ROOT) -> lis
         enabled = src.get(name, {}).get("enabled", False)
         if (only and name not in only) or (not only and not enabled):
             continue
+        say(f"Collecting from {NAMES.get(name, name)}...", end=" ")
+        start = time.monotonic()
         try:
             found = run()
             log.info("%s: %d postings", name, len(found))
             jobs.extend(found)
+            say(f"{len(found):,} postings ({time.monotonic() - start:.0f}s)")
         except Exception as exc:
+            say("failed (see warning below)")
             log.warning("source %s failed: %s", name, exc)
     return jobs
 
@@ -144,7 +163,9 @@ def write_csv(path: Path, jobs: list[Posting], reasons: list[str] | None = None)
 
 def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT, ai: bool = True) -> Result:
     jobs = collect(cfg, only, root)
+    say(f"Filtering {len(jobs):,} postings...")
     result = run_filters(jobs, build_filters(cfg, root, DriveZone.load(root)))
+    say(f"{len(result.kept)} roles kept")
     data = root / "data"
     mark_new(result.kept, data / "seen.json")
     if ai:
