@@ -36,6 +36,7 @@ def test_title_tracks(titles, title, track):
         ("Quantitative Trader", "not an internship"),
         ("Hardware Intern", "no matching track"),
         ("Technology Summer Analyst", "no matching track"),
+        ("Quant Trading Analyst Intern - IAP Winternship (MIT Students Only)", "excluded"),
     ],
 )
 def test_title_rejections(titles, title, reason):
@@ -123,11 +124,19 @@ def test_part_time_from_description(season):
         ("Trading Intern", ["Summer 2026"], "already started or over"),
         ("Trading Intern", ["Fall 2026"], "already started or over"),
         ("2028 Academy Summer Internship", [], "after graduation"),
+        ("Data Science Co-op", ["Winter 2026"], "already started or over"),  # Jan-Apr 2026
+        ("Data Science Co-op", ["Winter 2028"], "after graduation"),
     ],
 )
 def test_season_rejects_past_and_post_graduation_terms(season, title, terms, reason):
     with pytest.raises(Rejected, match=reason):
         season(job(title, terms=terms))
+
+
+def test_december_start_counts_as_next_winter(season):
+    j = job("Quant Credit Intern - December 2026")
+    season(j)
+    assert (j.season, j.terms) == ("Winter", ["Winter 2027"])
 
 
 def test_keeps_valid_term_among_old_ones(season):
@@ -222,6 +231,20 @@ def test_dedup_merges_across_sources_and_keeps_best_source():
     assert merged.source == "greenhouse"
     assert merged.sources == ["greenhouse", "simplify"]
     assert merged.locations == ["New York, NY", "New York"]
+
+
+def test_dedup_never_merges_full_time_with_intern():
+    full_time = job("Quantitative Researcher", company="Point72", source="greenhouse")
+    intern = job(
+        "Quantitative Researcher - Intern", company="Point72", source="kadoa", is_internship=True
+    )
+    assert len(dedupe([full_time, intern])) == 2
+
+
+def test_dedup_treats_internship_and_intern_alike():
+    a = job("Quant Trading Internship - Summer 2027", company="X", source="greenhouse")
+    b = job("Quant Trading Intern", company="X", source="simplify")
+    assert len(dedupe([a, b])) == 1
 
 
 def test_dedup_keeps_different_roles():

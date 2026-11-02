@@ -79,6 +79,8 @@ def build_filters(cfg: Config, root: Path = ROOT, zone: DriveZone | None = None)
 def run_filters(jobs: list[Posting], filters) -> Result:
     result = Result()
     result.collected.update(j.source for j in jobs)
+    for job in jobs:  # collapse non-breaking and repeated spaces some sources put in titles
+        job.title = " ".join(job.title.replace("\xa0", " ").split())
     for job in dedupe(jobs):
         try:
             for _, check in filters:
@@ -123,7 +125,8 @@ COLUMNS = [
 def write_csv(path: Path, jobs: list[Posting], reasons: list[str] | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     cols = COLUMNS + (["reason"] if reasons is not None else [])
-    with open(path, "w", newline="", encoding="utf-8") as fh:
+    # utf-8-sig adds the marker Excel and Numbers need to show "–" and "’" correctly.
+    with open(path, "w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
         writer.writeheader()
         for i, job in enumerate(jobs):

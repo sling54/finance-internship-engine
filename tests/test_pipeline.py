@@ -53,5 +53,6 @@ def test_new_flag_and_csv(cfg, tmp_path):
 
     out = tmp_path / "jobs.csv"
     write_csv(out, again.kept)
-    rows = list(csv.DictReader(out.open()))
+    assert out.read_bytes().startswith(b"\xef\xbb\xbf")  # UTF-8 marker for Excel/Numbers
+    rows = list(csv.DictReader(out.open(encoding="utf-8-sig")))
     assert rows and rows[0]["company"] and rows[0]["url"].startswith("https://")

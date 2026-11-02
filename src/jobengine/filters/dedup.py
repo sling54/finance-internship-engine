@@ -20,15 +20,15 @@ def company_key(name: str) -> str:
     return " ".join(key.split()) or normalize(name)
 
 
-_TITLE_NOISE = re.compile(
-    r"\b(20\d\d|intern|internship|internships|program|programme|summer|the|of|and|for|in)\b"
-)
+_TITLE_NOISE = re.compile(r"\b(20\d\d|program|programme|summer|the|of|and|for|in)\b")
 
 
 def title_key(title: str) -> str:
     """Word set of the title minus years and filler, so "Quant Trading Intern - Summer 2027
-    (DV Equities)" and "Quant Trading Intern - DV Equities" match."""
-    words = _TITLE_NOISE.sub(" ", normalize(title)).split()
+    (DV Equities)" and "Quant Trading Intern - DV Equities" match. "Intern" is kept, so a
+    full-time "Quantitative Researcher" never merges with "Quantitative Researcher - Intern"."""
+    text = re.sub(r"\binternships?\b", "intern", normalize(title))
+    words = _TITLE_NOISE.sub(" ", text).split()
     return " ".join(sorted(set(words))) or normalize(title)
 
 
