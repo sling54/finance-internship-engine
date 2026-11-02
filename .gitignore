@@ -218,3 +218,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---- Personal data: never commit ----
+# Your real profile, tracker, resume, keys and all engine output stay local.
+config/profile.yml
+config/firms.local.yml
+data/
+*.xlsx
+*.xls
+*.pdf
+*.docx
+.env
+token.json
+credentials.json
+auth/
+logs/

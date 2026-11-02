@@ -1,0 +1,41 @@
+# Firm career boards scanned through their public job APIs (source 1).
+# The token is the part of the careers URL after greenhouse.io/, lever.co/ or ashbyhq.com/.
+# Tokens below were taken from live posting URLs in the Simplify and Kadoa datasets (Nov 2026).
+# Add a firm: open its careers page, copy the token, add a line.
+
+greenhouse:
+  DV Trading: dvtrading
+  Flow Traders: flowtraders
+  Gelber Group: gelbergroup
+  IMC Trading: imc
+  Jane Street: janestreet
+  Akuna Capital: akunacapitaloci
+  DRW: drwuniversityjobs
+  Five Rings: fiveringsllc
+  Walleye Capital: walleyecapital-external-students
+  Point72: point72
+  Schonfeld: schonfeld
+  Geneva Trading: genevatrading
+  Garda Capital Partners: gardacp
+  Chicago Trading Company: chicagotradingcampus
+  Virtu: virtu
+  Optiver: optiverprivate
+  Radix Trading: radixuniversity
+  Maven Securities: mavensecuritiesholdingltd
+  Man Group: mangroup
+  XTX Markets: xtxmarketstechnologies
+
+lever:
+  Belvedere Trading: belvederetrading
+  Valkyrie Trading: valkyrietrading
+
+ashby:
+  Old Mission: old-mission-capital
+
+# Firms on Workday, ApplicantPro and other portals (source 2) are covered by Kadoa where possible
+# (AQR, SIG, Citadel, Group One, Two Sigma, ...). Others are checked with career-ops' web scan.
+other_portals:
+  Bank of America: https://campus.bankofamerica.com/
+  Northern Trust: https://careers.northerntrust.com/
+  Blackstone: https://www.blackstone.com/careers/
+  Group One Trading: https://www.grouponetrading.com/careers/

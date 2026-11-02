@@ -1,0 +1,30 @@
+[
+  {
+    "source": "Simplify", "category": "Quant", "company_name": "Example Markets",
+    "id": "1", "title": "Quantitative Research Intern", "active": true, "is_visible": true,
+    "terms": ["Summer 2027"], "date_posted": 1793633760, "date_updated": 1793633771,
+    "url": "https://example.com/jobs/1", "locations": ["New York, NY"],
+    "company_url": "", "sponsorship": "Other", "degrees": ["Bachelor's", "Master's"]
+  },
+  {
+    "source": "Simplify", "category": "Quant", "company_name": "Example Markets",
+    "id": "2", "title": "Quant Researcher Intern - PhD", "active": true, "is_visible": true,
+    "terms": ["Summer 2027"], "date_posted": 1793633760, "date_updated": 1793633771,
+    "url": "https://example.com/jobs/2", "locations": ["NYC"],
+    "company_url": "", "sponsorship": "Other", "degrees": ["PhD"]
+  },
+  {
+    "source": "Simplify", "category": "Hardware", "company_name": "Chip Co",
+    "id": "3", "title": "Hardware Intern", "active": true, "is_visible": true,
+    "terms": ["Summer 2027"], "date_posted": 1793633760, "date_updated": 1793633771,
+    "url": "https://example.com/jobs/3", "locations": ["Austin, TX"],
+    "company_url": "", "sponsorship": "Other", "degrees": ["Bachelor's"]
+  },
+  {
+    "source": "Simplify", "category": "Quant", "company_name": "Closed Co",
+    "id": "4", "title": "Trading Intern", "active": false, "is_visible": true,
+    "terms": ["Summer 2027"], "date_posted": 1793633760, "date_updated": 1793633771,
+    "url": "https://example.com/jobs/4", "locations": ["Chicago, IL"],
+    "company_url": "", "sponsorship": "Other", "degrees": ["Bachelor's"]
+  }
+]

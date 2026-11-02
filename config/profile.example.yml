@@ -1,0 +1,26 @@
+# Copy this file to config/profile.yml and fill in your real details.
+# config/profile.yml is git-ignored, so it never reaches GitHub.
+
+name: Alex Example
+school: Example State University
+degree: bachelors              # bachelors | masters | phd
+major: Finance
+minor: Economics
+gpa: 3.50
+graduation: 2027-12            # YYYY-MM
+# Accept postings that ask for graduates in this window (inclusive), or that name no date.
+grad_window:
+  start: 2027-12
+  end: 2028-06
+work_authorization: us_citizen   # us_citizen | permanent_resident | needs_sponsorship
+
+# Fall, spring and part-time roles must be within this drive time of campus (or remote).
+home_base:
+  name: Example campus
+  address: 11200 SW 8th St, Miami, FL 33199
+  lon: -80.3733
+  lat: 25.7562
+  max_drive_minutes: 60
+
+# Your application tracker. Rows found here are dropped as "already applied".
+tracker_path: data/ApplicationTracker.xlsx

@@ -1,0 +1,46 @@
+# Settings for each source. Turn a source off with enabled: false.
+
+ats:            # source 1: Greenhouse, Lever, Ashby boards listed in firms.yml
+  enabled: true
+
+simplify:       # source 3
+  enabled: true
+  url: https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json
+  categories: [Quant, Quantitative Finance, AI/ML/Data, "Data Science, AI & Machine Learning",
+               Software, Software Engineering]
+
+kadoa:          # source 4
+  enabled: true
+  url: https://raw.githubusercontent.com/kadoa-org/quant-jobs/main/public/data/jobs.json
+
+jobspy:         # source 5 (needs: pip install -e ".[jobspy]")
+  enabled: false
+  sites: [linkedin, indeed, zip_recruiter, google]
+  hours_old: 24
+  passes:
+    - location: United States
+      results_wanted: 50
+      terms: ["trading intern", "quantitative intern", "derivatives intern",
+              "investment analyst intern", "summer analyst 2027"]
+    - location: Miami, FL
+      distance_miles: 25
+      results_wanted: 30
+      terms: ["data analyst intern", "data analytics intern", "software engineer intern"]
+
+alert_emails:   # source 6 (needs: pip install -e ".[gmail]" and a Google OAuth client)
+  enabled: false
+  gmail_label: job-alerts
+  credentials_path: auth/credentials.json
+  token_path: auth/token.json
+  max_messages: 100
+
+# Cities within roughly a 1-hour drive of the home base. Matched before any map lookup.
+# "borderline" cities are kept but flagged for you to check.
+local_area:
+  inside: [Miami, Miami Beach, Coral Gables, Doral, Hialeah, Miami Lakes, Kendall, Homestead,
+           Cutler Bay, Pinecrest, Palmetto Bay, South Miami, Aventura, North Miami, North Miami Beach,
+           Sunny Isles Beach, Key Biscayne, Brickell, Miami Gardens, Medley, Sweetwater, Miramar,
+           Pembroke Pines, Hollywood, Hallandale Beach, Fort Lauderdale, Davie, Plantation, Sunrise,
+           Weston, Dania Beach, Cooper City, Lauderhill, Tamarac]
+  borderline: [Boca Raton, Delray Beach, Deerfield Beach, Pompano Beach, Coral Springs, Parkland,
+               Coconut Creek, Margate, Florida City]

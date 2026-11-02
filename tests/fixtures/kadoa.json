@@ -1,0 +1,16 @@
+[
+  {
+    "id": "k1", "firmName": "Example Markets", "firmType": "proprietary",
+    "jobTitle": "Quantitative Research Intern - Summer 2027", "datePosted": "2026-10-26",
+    "url": "https://example.com/careers/q1", "applyUrl": "https://example.com/apply/q1",
+    "locations": ["New York"], "salary": 150000, "jobType": null, "roleCategory": "quantitative_research",
+    "seniorityLevel": "intern", "educationRequirement": "bachelors", "workMode": "onsite"
+  },
+  {
+    "id": "k2", "firmName": "Example Markets", "firmType": "proprietary",
+    "jobTitle": "Senior Quantitative Researcher", "datePosted": "2026-10-26",
+    "url": "https://example.com/careers/q2", "applyUrl": null,
+    "locations": ["New York"], "salary": null, "jobType": "FULL_TIME", "roleCategory": "quantitative_research",
+    "seniorityLevel": "senior", "educationRequirement": "phd_required", "workMode": "onsite"
+  }
+]

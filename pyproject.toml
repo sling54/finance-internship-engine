@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jobengine"
+version = "0.1.0"
+description = "Automated finance internship search pipeline: scans career pages, internship lists, job boards and alert emails, then filters by role, graduation date, season and location."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "pyyaml>=6.0",
+    "shapely>=2.0",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+jobspy = ["python-jobspy>=1.1.80"]
+gmail = ["google-api-python-client>=2.100", "google-auth-oauthlib>=1.1"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+jobengine = "jobengine.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # long regex patterns read better unbroken; ruff format handles code

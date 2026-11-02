@@ -1,0 +1,21 @@
+{
+  "jobs": [
+    {
+      "id": 4823923101,
+      "title": "Quantitative Trader Intern - Summer 2027",
+      "absolute_url": "https://boards.greenhouse.io/example/jobs/4823923101",
+      "location": {"name": "Chicago, IL"},
+      "updated_at": "2026-10-26T12:00:00-04:00",
+      "first_published": "2026-09-01T09:00:00-04:00",
+      "content": "&lt;p&gt;Open to students graduating between &lt;strong&gt;December 2027 and June 2028&lt;/strong&gt;.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Options market making&lt;/li&gt;&lt;/ul&gt;"
+    },
+    {
+      "id": 4823923102,
+      "title": "Software Engineer",
+      "absolute_url": "https://boards.greenhouse.io/example/jobs/4823923102",
+      "location": {"name": "New York, NY"},
+      "updated_at": "2026-10-20T12:00:00-04:00",
+      "content": "&lt;p&gt;Full-time role.&lt;/p&gt;"
+    }
+  ]
+}
