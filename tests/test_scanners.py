@@ -92,3 +92,48 @@ def test_mixed_alert_email_with_tracking_link():
     assert jobs["alert:handshake"].url == "https://app.joinhandshake.com/jobs/9876543"
     assert jobs["alert:handshake"].locations == ["Coral Gables, FL"]
     assert jobs["alert:efinancialcareers"].title == "Trading Intern"
+
+
+class _Frame:
+    """Stands in for the pandas DataFrame JobSpy returns."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def to_dict(self, orient):
+        return self.rows
+
+
+def test_jobspy_stops_a_site_after_it_blocks(monkeypatch):
+    import logging
+    import sys
+    import types
+
+    from jobengine.scanners import boards
+
+    calls = []
+
+    def fake_scrape_jobs(site_name, search_term, **kw):
+        site = site_name[0]
+        calls.append((site, search_term, kw["job_type"]))
+        if site == "linkedin":
+            logging.getLogger("jobspy.linkedin").error("response status code 429")
+            return _Frame([])
+        row = {
+            "site": site,
+            "title": f"{search_term} role",
+            "company": "Acme",
+            "job_url": f"https://example.com/{site}/{search_term}",
+        }
+        return _Frame([row])
+
+    monkeypatch.setitem(sys.modules, "jobspy", types.SimpleNamespace(scrape_jobs=fake_scrape_jobs))
+    settings = {
+        "sites": ["linkedin", "zip_recruiter"],
+        "passes": [{"location": "United States", "terms": ["trading intern", "quant intern"]}],
+    }
+    jobs = boards.scan(settings, pause_seconds=(0, 0))
+
+    assert [c[0] for c in calls].count("linkedin") == 1  # blocked after the first call
+    assert [c for c in calls if c[0] == "linkedin"][0][2] is None  # no job_type on LinkedIn
+    assert len(jobs) == 2 and all(j.source == "jobspy:zip_recruiter" for j in jobs)

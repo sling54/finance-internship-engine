@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import math
+import random
+import time
 
 from ..models import Posting
 
@@ -44,34 +46,65 @@ def parse_jobspy_records(records: list[dict]) -> list[Posting]:
     return out
 
 
-def scan(settings: dict) -> list[Posting]:
+class _BlockWatcher(logging.Handler):
+    """JobSpy logs a 429 instead of raising it. Watch its log to know when a site blocks us."""
+
+    def __init__(self):
+        super().__init__(level=logging.ERROR)
+        self.blocked = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        msg = record.getMessage().lower()
+        if "429" in msg or "blocked" in msg:
+            self.blocked = True
+
+
+# Sites where JobSpy can't combine hours_old with job_type; the search terms say "intern" instead.
+_NO_JOB_TYPE = {"linkedin", "indeed"}
+
+
+def scan(settings: dict, pause_seconds: tuple[float, float] = (3.0, 7.0)) -> list[Posting]:
     try:
         from jobspy import scrape_jobs
     except ImportError:
         log.warning('JobSpy not installed; run: pip install -e ".[jobspy]"')
         return []
 
+    watcher = _BlockWatcher()
+    logging.getLogger("jobspy").addHandler(watcher)
+    blocked: set[str] = set()
     jobs: list[Posting] = []
-    for run in settings.get("passes", []):
-        for site in settings.get("sites", []):
-            for term in run.get("terms", []):
-                try:
-                    df = scrape_jobs(
-                        site_name=[site],
-                        search_term=term,
-                        google_search_term=f"{term} near {run['location']} since yesterday",
-                        location=run["location"],
-                        distance=run.get("distance_miles", 50),
-                        job_type="internship",
-                        hours_old=settings.get("hours_old", 24),
-                        results_wanted=run.get("results_wanted", 30),
-                        country_indeed="USA",
-                    )
-                    found = parse_jobspy_records(df.to_dict("records"))
-                    log.info("jobspy %s '%s': %d postings", site, term, len(found))
-                    jobs.extend(found)
-                except Exception as exc:
-                    log.warning("jobspy %s '%s' failed, skipping: %s", site, term, exc)
-                    if site == "linkedin":
-                        break  # LinkedIn blocked us; the alert emails still cover it
+    try:
+        for run in settings.get("passes", []):
+            for site in settings.get("sites", []):
+                for term in run.get("terms", []):
+                    if site in blocked:
+                        break
+                    watcher.blocked = False
+                    try:
+                        df = scrape_jobs(
+                            site_name=[site],
+                            search_term=term,
+                            google_search_term=f"{term} near {run['location']} since yesterday",
+                            location=run["location"],
+                            distance=run.get("distance_miles", 50),
+                            job_type=None if site in _NO_JOB_TYPE else "internship",
+                            hours_old=settings.get("hours_old", 24),
+                            results_wanted=run.get("results_wanted", 30),
+                            country_indeed="USA",
+                        )
+                        found = parse_jobspy_records(df.to_dict("records"))
+                        log.info("jobspy %s '%s': %d postings", site, term, len(found))
+                        jobs.extend(found)
+                    except Exception as exc:
+                        log.warning("jobspy %s '%s' failed: %s", site, term, exc)
+                        watcher.blocked = True
+                    if watcher.blocked:
+                        # Stop asking: more requests only extend the block. Alert emails cover it.
+                        log.warning("jobspy: %s is blocking requests; skipping it this run", site)
+                        blocked.add(site)
+                    elif site == "linkedin":
+                        time.sleep(random.uniform(*pause_seconds))  # space out LinkedIn calls
+    finally:
+        logging.getLogger("jobspy").removeHandler(watcher)
     return jobs
