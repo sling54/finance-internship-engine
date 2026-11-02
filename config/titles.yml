@@ -1,0 +1,68 @@
+# Which job titles the engine keeps.
+# A title must (1) look like an internship, (2) match a track, (3) contain no excluded term.
+# Keywords are matched as whole words, case-insensitive. Edit freely; no code changes needed.
+
+tracks:
+  - name: Trading
+    priority: 1
+    location_rule: season        # season rule from Feature 4
+    keywords: [trading, trader, "sales & trading", "sales and trading", markets, "market making"]
+  - name: Quant / derivatives
+    priority: 1
+    location_rule: season
+    keywords: [quantitative, quant, derivatives, volatility, options, futures, "market risk", "portfolio risk"]
+  - name: Buy-side investing
+    priority: 2
+    location_rule: season
+    keywords: ["investment analyst", investments, investment, "portfolio management", "asset management",
+               "investment research", "equity research", "research analyst", "family office",
+               "hedge fund", "credit analyst", "fixed income"]
+  - name: Data analytics
+    priority: 2
+    location_rule: miami         # Miami area in every season
+    keywords: ["data analyst", "data analytics", "data science", "business intelligence", analytics]
+  - name: Software engineering
+    priority: 3
+    location_rule: miami
+    keywords: ["software engineer", "software engineering", "software developer", "python developer",
+               "quant developer", "quantitative developer"]
+  - name: Wealth management
+    priority: 3
+    location_rule: season
+    keywords: ["wealth management", "private wealth", "private bank", "private banking"]
+
+# Titles like "Summer Analyst" with no division: kept for the scorer to judge from the description.
+ambiguous_keywords: ["summer analyst", "summer associate", "finance intern", "financial analyst intern",
+                     "investment intern"]
+# ...unless the title names a non-finance division.
+ambiguous_exclude: [technology, operations, engineering, software, developer, it, compliance, legal,
+                    sales, hr, supply chain, procurement, marketing, business development]
+
+# Any of these anywhere in the title drops the role.
+exclude:
+  - investment banking
+  - "m&a"
+  - mergers
+  - leveraged finance
+  - coverage
+  - ecm
+  - dcm
+  - audit
+  - tax
+  - accounting
+  - insurance sales
+  - marketing
+  - recruiting
+  - human resources
+  - phd
+  - "master's"
+  - masters
+  - mba
+  - talk          # events listed as roles
+  - webinar
+  - info session
+  - information session
+
+# A title counts as an internship if it contains one of these.
+internship_keywords: [intern, internship, "summer analyst", "summer associate", co-op, coop,
+                      off-cycle, "insight program", "insight programme", placement]
