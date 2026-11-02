@@ -1,5 +1,6 @@
 #!/bin/bash
-# Schedules scripts/daily-scan.sh every day at the time given (default 07:30) with launchd.
+# Schedules scripts/daily-scan.sh every day at the time given (default 07:30) with launchd,
+# and `jobengine track` (tracker updates from Gmail) every hour.
 # If the Mac is asleep at that time, launchd runs the scan as soon as it wakes.
 #   ./scripts/schedule-daily-scan.sh          # every day at 07:30
 #   ./scripts/schedule-daily-scan.sh 6 45     # every day at 06:45
@@ -9,10 +10,14 @@ LABEL="com.jobengine.daily-scan"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
+TRACK_LABEL="com.jobengine.track"
+TRACK_PLIST="$HOME/Library/LaunchAgents/$TRACK_LABEL.plist"
+
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/$TRACK_LABEL" 2>/dev/null || true
 if [ "${1:-}" = "off" ]; then
-  rm -f "$PLIST"
-  echo "Daily scan turned off."
+  rm -f "$PLIST" "$TRACK_PLIST"
+  echo "Daily scan and hourly tracker sync turned off."
   exit 0
 fi
 
@@ -35,4 +40,21 @@ cat >"$PLIST" <<PLIST
 </plist>
 PLIST
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-printf "Daily scan scheduled for %02d:%02d. Logs go to %s/logs/\n" "$HOUR" "$MINUTE" "$REPO"
+
+cat >"$TRACK_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$TRACK_LABEL</string>
+  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>ProgramArguments</key>
+  <array><string>$REPO/.venv/bin/jobengine</string><string>track</string></array>
+  <key>StartInterval</key><integer>3600</integer>
+  <key>StandardOutPath</key><string>$REPO/logs/track.log</string>
+  <key>StandardErrorPath</key><string>$REPO/logs/track.log</string>
+</dict>
+</plist>
+PLIST
+launchctl bootstrap "gui/$(id -u)" "$TRACK_PLIST"
+printf "Daily scan scheduled for %02d:%02d; tracker syncs from Gmail every hour. Logs: %s/logs/\n" "$HOUR" "$MINUTE" "$REPO"

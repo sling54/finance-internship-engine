@@ -112,6 +112,23 @@ pip install -e ".[gmail]"               # enable alert emails (set alert_emails.
 jobengine zone                          # draw the drive-time zone (needs ORS_API_KEY in .env)
 ```
 
+## Tracker that updates itself
+
+`jobengine track` reads recent job emails from Gmail and keeps the application spreadsheet
+current. Fixed rules classify each email (Confirmed, Assessment, Interview, Offer, Rejected),
+it is matched to a row by company (sender domain, subject, or the body for applicant-tracking
+senders only), and the row moves forward. Rows never move backwards except to Rejected.
+
+- Four columns are added beside your own the first time: App Status, Status Date, Last Email,
+  Next Action. Existing columns, formulas and dropdowns are left alone.
+- Unmatched application emails go to a Review sheet; firms silent for 21 days get a follow-up
+  reminder, and 45 days a "mark Ghosted?" prompt.
+- A backup is saved before every write, and nothing is written while Excel has the file open.
+
+```bash
+jobengine track --days 30    # first run: read the last 30 days
+```
+
 ## Run it every morning (macOS)
 
 ```bash
@@ -119,7 +136,7 @@ jobengine zone                          # draw the drive-time zone (needs ORS_AP
 ./scripts/schedule-daily-scan.sh off    # stop
 ```
 
-launchd runs `scripts/daily-scan.sh`, which scans every enabled source, writes the CSVs and a log
+launchd runs `jobengine track` every hour and `scripts/daily-scan.sh` each morning, which scans every enabled source, writes the CSVs and a log
 in `logs/`, and shows a notification with the number of new roles. If the Mac is asleep at the
 scheduled time, the scan runs as soon as it wakes.
 
@@ -135,7 +152,7 @@ committed `profile.example.yml` holds fake data, and the tests always run agains
 pytest -q
 ```
 
-84 tests cover each source parser, each filter (including the five location cases from the
+107 tests cover each source parser, each filter (including the five location cases from the
 design), de-duplication, the AI scorer (with a fake LM Studio) and an end-to-end run against a
 fixture tracker spreadsheet. GitHub
 Actions runs lint and tests on Python 3.10 and 3.12 on every push.
@@ -159,7 +176,7 @@ tests/           pytest suite and fixtures
 - [x] Collect from six sources, de-duplicate, filter by title, eligibility, season, location
 - [x] Fit score (1–5) for each role from a local LLM, with a one-line reason
 - [ ] Application packets: tailored resume and prefilled answers (submission stays manual)
-- [ ] Tracker sync: Gmail status emails update the application spreadsheet
+- [x] Tracker sync: Gmail status emails update the application spreadsheet
 - [ ] Outreach: recruiter contact drafts, sent only after approval
 
 ## License

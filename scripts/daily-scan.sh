@@ -10,6 +10,7 @@ LOG="logs/scan_$(date +%F).log"
   echo "=== scan started $(date) ==="
   .venv/bin/jobengine scan
   echo "=== scan finished $(date) (exit $?) ==="
+  .venv/bin/jobengine track
 } >>"$LOG" 2>&1
 
 # Count roles flagged "new" in today's results.

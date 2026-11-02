@@ -25,6 +25,13 @@ def main(argv: list[str] | None = None) -> int:
         help="run just these sources (default: all enabled in sources.yml)",
     )
     scan.add_argument("--no-ai", action="store_true", help="skip the AI fit score this run")
+    track = sub.add_parser("track", help="update the application tracker from your Gmail")
+    track.add_argument(
+        "--days",
+        type=int,
+        default=2,
+        help="how far back to read email (default 2; use 30 for a first run)",
+    )
     sub.add_parser("zone", help="draw the drive-time zone with OpenRouteService (one API call)")
 
     args = parser.parse_args(argv)
@@ -39,6 +46,17 @@ def main(argv: list[str] | None = None) -> int:
             "and fill in your details.",
             file=sys.stderr,
         )
+
+    if args.command == "track":
+        from .tracker_sync import sync
+
+        tracker = ROOT / cfg.profile.get("tracker_path", "data/ApplicationTracker.xlsx")
+        if not tracker.exists():
+            print(f"No tracker at {tracker}; set tracker_path in config/profile.yml.")
+            return 1
+        report = sync(cfg.sources.get("alert_emails", {}), tracker, ROOT, days=args.days)
+        print(report.summary())
+        return 0
 
     if args.command == "zone":
         key = api_key(ROOT)
