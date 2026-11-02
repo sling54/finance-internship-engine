@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 LADDER = ["Applied", "Confirmed", "Assessment", "Interview", "Offer"]
 CLOSED = {"Rejected", "Withdrawn", "Offer"}  # set by an email or by you; never overwritten
-NEW_COLUMNS = ["App Status", "Status Date", "Last Email", "Next Action"]
+NEW_COLUMNS = ["App Status", "Status Date", "Last Email", "Next Action", "Job Link"]
 
 # Checked in this order; the first that matches wins. Phrases are specific on purpose: a
 # confirmation that says "unfortunately we can't reply to everyone" must not read as a rejection.
@@ -181,6 +181,59 @@ def match_company(sender: str, subject: str, body: str, companies: list[str]) ->
     return best
 
 
+# ---------- reading firm and role from a subject line ----------
+
+_END = r"(?=\s*(?:[!.,|]|\s-\s|\s–\s|\(|$| for the | for our | for your | role\b| position\b))"
+SUBJECT_PATTERNS = [
+    # "Your application for Citadel's Trading Fundamental Analyst - Intern (US) role has been ..."
+    re.compile(
+        r"application for (?P<company>[\w&.' ]+?)'s (?P<role>.+?) (?:role|position)\b", re.I
+    ),
+    # "Your application for Quantitative Trader Intern - Summer 2027 at IMC is underway"
+    re.compile(
+        r"application for (?P<role>.+?) at (?P<company>[\w&.' ]+?)(?= is | has |[!.,]|$)", re.I
+    ),
+    # "Thank you for applying to Gelber Group for the Discretionary Trading Internship - ..."
+    re.compile(
+        r"(?:applying|application|apply) (?:to|with) (?P<company>[\w&.' ]+?) for the "
+        r"(?P<role>.+?)(?: opportunity| position| role|$)",
+        re.I,
+    ),
+    # "Thank you for your application to Belvedere Trading - Quantitative Trading Intern - ..."
+    # "Thank You for Applying to BNY - 81350 - 2027 BNY Summer Internship Program - Trading"
+    re.compile(
+        r"(?:applying|application) (?:to|with) (?P<company>[\w&.' ]+?)\s[-–]\s"
+        r"(?:\d+\s[-–]\s)?(?P<role>.+)$",
+        re.I,
+    ),
+    # "Thank you for applying to PIMCO!", "Thank you for applying with Group One Trading"
+    re.compile(r"(?:applying|application|apply) (?:to|with) (?P<company>[\w&.' ]+?)" + _END, re.I),
+    # "Blackstone Application – Invitation to pymetrics ..."
+    re.compile(r"^(?P<company>[\w&.' ]+?) application\s*[-–:]", re.I),
+]
+_NOT_COMPANIES = {"the", "our", "your", "this", "a", "an", "us", "you", "position", "role", "job"}
+
+
+def firm_and_role(sender: str, subject: str) -> tuple[str, str] | None:
+    """Firm and role named in an application email's subject, if it names them clearly."""
+    for pattern in SUBJECT_PATTERNS:
+        m = pattern.search(subject.strip())
+        if not m:
+            continue
+        company = m.group("company").strip(" '.")
+        company = re.sub(r"\s+(US|USA|LLC|Inc|Ltd|LP)$", "", company)
+        if len(company) < 2 or company.lower() in _NOT_COMPANIES:
+            continue
+        role = (m.groupdict().get("role") or "").strip(" -–!.")
+        role = re.sub(r"\s*\((?:[^)]*,\s*)?[A-Z]{2}\)$", "", role)  # trailing "(New York, NY)"
+        return company, role
+    # Workday sends from <firm>@myworkday.com with a bare "Thank You For Applying!"
+    m = re.search(r"^\W*([a-z0-9]+)@myworkday\.com", sender.split("<")[-1], re.I)
+    if m:
+        return m.group(1).upper() if len(m.group(1)) <= 4 else m.group(1).title(), ""
+    return None
+
+
 # ---------- the spreadsheet ----------
 
 
@@ -284,6 +337,41 @@ class Tracker:
     def get(self, row: Row, column: str):
         return self.ws.cell(row.index, self.cols[normalize(column)]).value
 
+    def add_row(self, when: date, company: str, role: str, status: str, link: str = "") -> Row:
+        """Append an application below the last filled row, formatted like the rows above."""
+        last = max([r.index for r in self.rows()] or [self.header_row])
+        index = last + 1
+        row = Row(index, company, role, when, status)
+        values = {"date": when, "company": company, "role": role}
+        for key, value in values.items():
+            cell = self.ws.cell(index, self.cols[key], value)
+            if last > self.header_row:
+                above = self.ws.cell(last, self.cols[key])
+                cell.number_format = above.number_format
+                cell.font = copy(above.font)
+                cell.alignment = copy(above.alignment)
+        self.set(row, "App Status", status)
+        self.set(row, "Status Date", when)
+        if link:
+            self.set(row, "Job Link", link)
+        return row
+
+    def review_items(self) -> list[tuple[int, date, str, str, str]]:
+        if "Review" not in self.wb.sheetnames:
+            return []
+        ws = self.wb["Review"]
+        items = []
+        for r in range(2, ws.max_row + 1):
+            when, sender, subject, status = (ws.cell(r, c).value for c in range(1, 5))
+            if subject:
+                day = when.date() if isinstance(when, datetime) else when
+                items.append((r, day, str(sender or ""), str(subject), str(status or "")))
+        return items
+
+    def drop_review_rows(self, indexes: list[int]) -> None:
+        for r in sorted(indexes, reverse=True):
+            self.wb["Review"].delete_rows(r)
+
     def add_review(self, when: date, sender: str, subject: str, status: str) -> None:
         if "Review" not in self.wb.sheetnames:
             ws = self.wb.create_sheet("Review")
@@ -303,6 +391,27 @@ def is_open_in_excel(path: Path) -> bool:
     return (path.parent / f"~${path.name}").exists()
 
 
+_ROLE_NOISE = {"intern", "internship", "analyst", "program", "the", "and", "of", "us", "-"}
+_SEASONS = {"summer", "winter", "fall", "autumn", "spring", "quarter", "off", "cycle"}
+
+
+def same_role(a: str, b: str) -> bool:
+    """True when two role titles are the same job, ignoring years and filler words.
+    Different terms ("Summer 2027" vs "Winter Quarter 2027") are different jobs.
+    An empty title (the email didn't name the role) counts as the same."""
+    wa = {w for w in normalize(a).split() if not w.isdigit()} - _ROLE_NOISE
+    wb = {w for w in normalize(b).split() if not w.isdigit()} - _ROLE_NOISE
+    if not wa or not wb:
+        return True
+    sa, sb = wa & _SEASONS, wb & _SEASONS
+    if sa and sb and sa != sb:
+        return False
+    wa, wb = wa - _SEASONS, wb - _SEASONS
+    if not wa or not wb:
+        return True
+    return len(wa & wb) / min(len(wa), len(wb)) >= 0.6
+
+
 def pick_row(rows: list[Row], company: str, subject: str, body: str) -> Row:
     """Among this company's rows, the one whose role shares the most words with the email."""
     candidates = [r for r in rows if r.company == company]
@@ -312,6 +421,30 @@ def pick_row(rows: list[Row], company: str, subject: str, body: str) -> Row:
         return len(set(normalize(r.role).split()) & words), r.applied or date.min
 
     return max(candidates, key=overlap)
+
+
+# ---------- recording an application yourself ----------
+
+
+def record_application(
+    tracker_path: Path,
+    root: Path,
+    company: str,
+    role: str,
+    link: str = "",
+    when: date | None = None,
+) -> str:
+    """Add an application you just submitted, for firms that never send a confirmation."""
+    if is_open_in_excel(tracker_path):
+        return "Tracker is open in Excel; close it and run again (nothing was changed)."
+    tracker = Tracker(tracker_path)
+    for row in tracker.rows():
+        if company_key(row.company) == company_key(company) and same_role(row.role, role):
+            if not role or not row.role or normalize(row.role) == normalize(role):
+                return f"Already in the tracker: {row.company} - {row.role} (row {row.index})."
+    row = tracker.add_row(when or date.today(), company, role, "Applied", link)
+    tracker.save(root / "data" / "backups")
+    return f"Added: {company} - {role} (row {row.index}), status Applied."
 
 
 # ---------- the sync ----------
@@ -325,14 +458,17 @@ class SyncReport:
     reminders: int = 0
     skipped_open: bool = False
     left: int = 0  # emails not read because Gmail stopped answering
+    added: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
         if self.skipped_open:
             return "Tracker is open in Excel; close it and run again (nothing was changed)."
         lines = [
-            f"Read {self.emails} new job emails. Updated {len(self.updated)} rows, "
+            f"Read {self.emails} new job emails. Added {len(self.added)} applications, "
+            f"updated {len(self.updated)} rows, "
             f"{self.review} sent to Review, {self.reminders} follow-up reminders."
         ]
+        lines += [f"  + {a}" for a in self.added]
         lines += [f"  - {u}" for u in self.updated]
         if self.left:
             lines.append(
@@ -356,9 +492,30 @@ def apply_email(
         return
     company = match_company(sender, subject, body, sorted({r.company for r in rows}))
     if not company:
-        if not _domain(sender).endswith(BOARD_DOMAINS):
+        if _domain(sender).endswith(BOARD_DOMAINS):
+            return
+        found = firm_and_role(sender, subject)
+        if not found:
             tracker.add_review(when, sender, subject, status)
             report.review += 1
+            return
+        firm, role = found
+        row = tracker.add_row(when, firm, role, status)
+        tracker.set(row, "Last Email", f"{when:%Y-%m-%d}: {subject[:80]}")
+        rows.append(row)
+        report.added.append(f"{firm} - {role[:50] or '(role not named)'}: {status}")
+        return
+    found = firm_and_role(sender, subject)
+    if (
+        found
+        and found[1]
+        and not any(same_role(r.role, found[1]) for r in rows if r.company == company)
+    ):
+        # A known firm, but a role the tracker doesn't have yet (e.g. a second application).
+        row = tracker.add_row(when, company, found[1], status)
+        tracker.set(row, "Last Email", f"{when:%Y-%m-%d}: {subject[:80]}")
+        rows.append(row)
+        report.added.append(f"{company} - {found[1][:50]}: {status}")
         return
     row = pick_row(rows, company, subject, body)
     tracker.set(row, "Last Email", f"{when:%Y-%m-%d}: {subject[:80]}")
@@ -405,6 +562,19 @@ def sync(
         return report
     tracker = Tracker(tracker_path)
     rows = tracker.rows()
+
+    # Emails parked in Review by earlier runs get another try with the current rules.
+    cleared = []
+    for index, when, sender, subject, _ in tracker.review_items():
+        before = len(report.added) + len(report.updated)
+        review_before = report.review
+        apply_email(tracker, rows, when or date.today(), sender, subject, "", report)
+        if report.review > review_before:  # still unreadable: remove the duplicate just added
+            tracker.wb["Review"].delete_rows(tracker.wb["Review"].max_row)
+            report.review -= 1
+        elif len(report.added) + len(report.updated) > before or classify(subject, ""):
+            cleared.append(index)
+    tracker.drop_review_rows(cleared)
 
     gmail = gmail or service(settings, root)
     state_path = root / "data" / "tracker_sync.json"

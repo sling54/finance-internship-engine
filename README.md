@@ -119,10 +119,20 @@ current. Fixed rules classify each email (Confirmed, Assessment, Interview, Offe
 it is matched to a row by company (sender domain, subject, or the body for applicant-tracking
 senders only), and the row moves forward. Rows never move backwards except to Rejected.
 
-- Four columns are added beside your own the first time: App Status, Status Date, Last Email,
-  Next Action. Existing columns, formulas and dropdowns are left alone.
-- Unmatched application emails go to a Review sheet; firms silent for 21 days get a follow-up
-  reminder, and 45 days a "mark Ghosted?" prompt.
+- Five columns are added beside your own the first time: App Status, Status Date, Last Email,
+  Next Action, Job Link. Existing columns, formulas and dropdowns are left alone.
+- A confirmation from a firm or role that isn't in the tracker yet ("Thank you for applying to
+  Gelber Group for the Discretionary Trading Internship") becomes a new row, with the firm and
+  role read from the subject. Only emails that name no firm go to a Review sheet, and each run
+  retries them. Firms silent for 21 days get a follow-up reminder, and 45 days a "mark Ghosted?"
+  prompt.
+- Many firms never confirm. Record those as you submit, so the engine still tracks them and
+  never shows the role again:
+
+```bash
+jobengine applied gelber discretionary                         # a role from jobs_latest.csv
+jobengine applied --company "Group One Trading" --role "Trading Analyst Intern"
+```
 - A backup is saved before every write, and nothing is written while Excel has the file open.
 
 ```bash
@@ -152,7 +162,7 @@ committed `profile.example.yml` holds fake data, and the tests always run agains
 pytest -q
 ```
 
-107 tests cover each source parser, each filter (including the five location cases from the
+122 tests cover each source parser, each filter (including the five location cases from the
 design), de-duplication, the AI scorer (with a fake LM Studio) and an end-to-end run against a
 fixture tracker spreadsheet. GitHub
 Actions runs lint and tests on Python 3.10 and 3.12 on every push.

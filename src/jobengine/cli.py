@@ -12,6 +12,29 @@ from .zone import api_key, build_zone
 SOURCES = ["ats", "simplify", "kadoa", "jobspy", "alert_emails"]
 
 
+def find_jobs(csv_path, query: str) -> list[dict]:
+    """Rows of the results CSV whose URL equals the query, or that contain every query word."""
+    import csv
+
+    from .textutil import normalize
+
+    if not csv_path.exists():
+        return []
+    with open(csv_path, encoding="utf-8-sig") as fh:
+        rows = list(csv.DictReader(fh))
+    exact = [r for r in rows if r.get("url") == query.strip()]
+    if exact:
+        return exact
+    words = normalize(query).split()
+    return [
+        r
+        for r in rows
+        if all(
+            w in normalize(f"{r.get('company', '')} {r.get('title', '')}").split() for w in words
+        )
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jobengine", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true", help="log every source call")
@@ -32,6 +55,14 @@ def main(argv: list[str] | None = None) -> int:
         default=2,
         help="how far back to read email (default 2; use 30 for a first run)",
     )
+    applied = sub.add_parser(
+        "applied", help="record an application you just submitted (for firms that never email)"
+    )
+    applied.add_argument(
+        "search", nargs="+", help="words from the role in data/jobs_latest.csv, or its URL"
+    )
+    applied.add_argument("--company", help="add this firm directly instead of searching")
+    applied.add_argument("--role", default="", help="role title, with --company")
     sub.add_parser("zone", help="draw the drive-time zone with OpenRouteService (one API call)")
 
     args = parser.parse_args(argv)
@@ -56,6 +87,29 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         report = sync(cfg.sources.get("alert_emails", {}), tracker, ROOT, days=args.days)
         print(report.summary())
+        return 0
+
+    if args.command == "applied":
+        from .tracker_sync import record_application
+
+        tracker = ROOT / cfg.profile.get("tracker_path", "data/ApplicationTracker.xlsx")
+        if args.company:
+            print(record_application(tracker, ROOT, args.company, args.role))
+            return 0
+        matches = find_jobs(ROOT / "data" / "jobs_latest.csv", " ".join(args.search))
+        if len(matches) != 1:
+            if not matches:
+                print(
+                    "No role in data/jobs_latest.csv matches that. Try fewer words, or use "
+                    '--company "Firm" --role "Role".'
+                )
+            else:
+                print("Several roles match; add more words or paste the URL:")
+                for m in matches[:10]:
+                    print(f"  {m['company']} - {m['title']}  {m['url']}")
+            return 1
+        m = matches[0]
+        print(record_application(tracker, ROOT, m["company"], m["title"], m["url"]))
         return 0
 
     if args.command == "zone":

@@ -264,3 +264,157 @@ def test_sync_saves_progress_when_gmail_stops_answering(tmp_path):
     ws = load_workbook(path)["Applications"]
     header = [c.value for c in ws[6]]
     assert ws.cell(7, header.index("App Status") + 1).value == "Rejected"  # saved despite the stop
+
+
+# ---------- adding applications the tracker doesn't have yet ----------
+
+from jobengine.cli import find_jobs  # noqa: E402
+from jobengine.tracker_sync import firm_and_role, record_application  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "sender, subject, expected",
+    [  # real subject lines from the inbox
+        ("pimco@myworkday.com", "Thank you for applying to PIMCO!", ("PIMCO", "")),
+        (
+            "no-reply@us.greenhouse-mail.io",
+            "Thank you for applying to Gelber Group for the Discretionary Trading Internship - "
+            "Summer 2027 Opportunity",
+            ("Gelber Group", "Discretionary Trading Internship - Summer 2027"),
+        ),
+        (
+            "no-reply@citadel.com",
+            "Your application for Citadel's Trading Fundamental Analyst - "
+            "Intern (US) role has been received.",
+            ("Citadel", "Trading Fundamental Analyst - Intern"),
+        ),
+        (
+            "campusus@imc.com",
+            "We've got it! Your application for Quantitative Trader Intern - "
+            "Summer 2027 at IMC is underway",
+            ("IMC", "Quantitative Trader Intern - Summer 2027"),
+        ),
+        (
+            "x@people.bny.com",
+            "Thank You for Applying to BNY - 81350 - 2027 BNY Summer Internship "
+            "Program - Trading (New York, NY)",
+            ("BNY", "2027 BNY Summer Internship Program - Trading"),
+        ),
+        ("x@flowtraders.jobs", "Thank You For Applying to Flow Traders US!", ("Flow Traders", "")),
+        ("rbc@myworkday.com", "Thank You For Applying!", ("RBC", "")),
+        (
+            "blackstone@pymetrics.com",
+            "Blackstone Application – Invitation to pymetrics Assessment",
+            ("Blackstone", ""),
+        ),
+        ("x@mail.pageuppeople.com", "Application Received", None),
+        ("invites@pymetrics.com", "Thank you for completing pymetrics!", None),
+    ],
+)
+def test_firm_and_role_from_subject(sender, subject, expected):
+    assert firm_and_role(sender, subject) == expected
+
+
+def app_status(path, row):
+    ws = load_workbook(path)["Applications"]
+    header = [c.value for c in ws[6]]
+    return [
+        ws.cell(row, header.index(h) + 1).value
+        for h in ("Company", "Role Applied To", "App Status")
+    ]
+
+
+def test_unknown_firms_and_new_roles_become_rows(tmp_path):
+    path = tmp_path / "ApplicationTracker.xlsx"
+    make_tracker(path)
+    gmail = FakeGmail(
+        [
+            email("c1", "pimco@myworkday.com", "Thank you for applying to PIMCO!", "", 1),
+            email(
+                "c2",
+                "no-reply@hire.lever.co",
+                "Thank you for your application to Belvedere "
+                "Trading - Quantitative Trading Intern - Summer 2027",
+                "",
+                1,
+            ),
+            email(
+                "c3",
+                "no-reply@hire.lever.co",
+                "Thank you for your application to Belvedere "
+                "Trading - Quantitative Trading Intern - Winter Quarter 2027",
+                "",
+                1,
+            ),
+            email(
+                "c4",
+                "no-reply@hire.lever.co",
+                "Thank you for your application to Belvedere "
+                "Trading - Quantitative Trading Intern - Summer 2027",
+                "",
+                2,
+            ),  # duplicate email
+        ]
+    )
+    report = sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=gmail, pause=0)
+    assert len(report.added) == 3 and report.review == 0
+    assert app_status(path, 11) == ["PIMCO", None, "Confirmed"]
+    assert app_status(path, 12)[:2] == [
+        "Belvedere Trading",
+        "Quantitative Trading Intern - Summer 2027",
+    ]
+    assert app_status(path, 13)[1] == "Quantitative Trading Intern - Winter Quarter 2027"
+    assert app_status(path, 14) == [None, None, None]
+
+
+def test_review_backlog_is_turned_into_rows(tmp_path):
+    path = tmp_path / "ApplicationTracker.xlsx"
+    make_tracker(path)
+    wb = load_workbook(path)
+    review = wb.create_sheet("Review")
+    review.append(["Email date", "From", "Subject", "Looks like", "What to do"])
+    review.append(
+        [
+            datetime(2026, 10, 20),
+            "no-reply@drwholdings.com",
+            "Thank you for applying to DRW",
+            "Confirmed",
+            "",
+        ]
+    )
+    review.append(
+        [datetime(2026, 10, 21), "x@mail.pageuppeople.com", "Application Received", "Confirmed", ""]
+    )
+    wb.save(path)
+    report = sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=FakeGmail([]), pause=0)
+    assert report.added == ["DRW - (role not named): Confirmed"]
+    left = [r[2] for r in load_workbook(path)["Review"].iter_rows(min_row=2, values_only=True)]
+    assert left == ["Application Received"]
+
+
+def test_record_application_without_email(tmp_path):
+    path = tmp_path / "ApplicationTracker.xlsx"
+    make_tracker(path)
+    msg = record_application(
+        path,
+        tmp_path,
+        "Group One Trading",
+        "Trading Analyst Intern",
+        "https://group1.applicantpro.com/jobs/4192883",
+        date(2026, 11, 2),
+    )
+    assert msg.startswith("Added") and app_status(path, 11)[2] == "Applied"
+    again = record_application(path, tmp_path, "Group One Trading", "Trading Analyst Intern")
+    assert again.startswith("Already in the tracker")
+
+
+def test_find_jobs_by_words_or_url(tmp_path):
+    csv_path = tmp_path / "jobs.csv"
+    csv_path.write_text(
+        "company,title,url\nGelber Group,Discretionary Trading Internship,https://a\n"
+        "DV Trading,Trading Intern - DV Commodities,https://b\n",
+        encoding="utf-8-sig",
+    )
+    assert [r["company"] for r in find_jobs(csv_path, "gelber discretionary")] == ["Gelber Group"]
+    assert [r["company"] for r in find_jobs(csv_path, "https://b")] == ["DV Trading"]
+    assert len(find_jobs(csv_path, "trading")) == 2
