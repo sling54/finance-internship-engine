@@ -47,7 +47,8 @@ def month_season(month: str) -> str:
 
 
 # Month each season starts, to compare a term against graduation.
-_START_MONTH = {"Spring": 1, "Summer": 5, "Fall": 8, "Winter": 12}
+# "Winter 2027" means a Jan-Apr 2027 co-op term, as SimplifyJobs uses it.
+_START_MONTH = {"Winter": 1, "Spring": 1, "Summer": 5, "Fall": 8}
 
 
 def _year(raw: str) -> int:
@@ -63,7 +64,10 @@ def explicit_terms(job: Posting) -> list[tuple[str, int]]:
     for m in _YEAR_FIRST.finditer(job.title):  # "2027 Summer Internship"
         terms.append((_NAMES[m.group(2).lower()], int(m.group(1))))
     for m in _MONTH_YEAR.finditer(job.title):
-        terms.append((month_season(m.group(1)), int(m.group(2))))
+        season, year = month_season(m.group(1)), int(m.group(2))
+        if season == "Winter":
+            year += 1  # a December start belongs to the next winter term
+        terms.append((season, year))
     return terms
 
 
@@ -109,9 +113,6 @@ class SeasonFilter:
 
     def _term_ok(self, season: str, year: int) -> bool:
         start = (year, _START_MONTH[season])
-        # Winter 2026 may mean Dec 2026 (still ahead), so winter terms get one extra year of grace.
         started = start < (self.today.year, self.today.month)
-        if season == "Winter":
-            started = year < self.today.year
         after_grad = start > (self.grad_year, self.grad_month)
         return not started and not after_grad

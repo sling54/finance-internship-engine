@@ -58,6 +58,7 @@ exclude:
   - "master's"
   - masters
   - mba
+  - students only # programs for one school, e.g. "(MIT Students Only)"
   - talk          # events listed as roles
   - webinar
   - info session
