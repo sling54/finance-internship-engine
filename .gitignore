@@ -233,3 +233,6 @@ token.json
 credentials.json
 auth/
 logs/
+
+# Resume, transcript and tracker live here
+private/

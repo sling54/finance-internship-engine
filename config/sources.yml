@@ -14,7 +14,7 @@ kadoa:          # source 4
   url: https://raw.githubusercontent.com/kadoa-org/quant-jobs/main/public/data/jobs.json
 
 jobspy:         # source 5 (needs: pip install -e ".[jobspy]")
-  enabled: false
+  enabled: true
   sites: [linkedin, indeed, zip_recruiter, google]
   hours_old: 24
   passes:
