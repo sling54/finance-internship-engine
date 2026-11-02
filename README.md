@@ -112,6 +112,17 @@ pip install -e ".[gmail]"               # enable alert emails (set alert_emails.
 jobengine zone                          # draw the drive-time zone (needs ORS_API_KEY in .env)
 ```
 
+## Run it every morning (macOS)
+
+```bash
+./scripts/schedule-daily-scan.sh        # every day at 07:30 (or: ./scripts/schedule-daily-scan.sh 6 45)
+./scripts/schedule-daily-scan.sh off    # stop
+```
+
+launchd runs `scripts/daily-scan.sh`, which scans every enabled source, writes the CSVs and a log
+in `logs/`, and shows a notification with the number of new roles. If the Mac is asleep at the
+scheduled time, the scan runs as soon as it wakes.
+
 ## Privacy
 
 Personal files never reach this repo. `.gitignore` excludes `config/profile.yml`, the `data/`
