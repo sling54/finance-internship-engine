@@ -75,11 +75,31 @@ def test_grad_window_passes(eligibility, text):
 @pytest.mark.parametrize(
     "text",
     [
-        "Candidates graduating in Spring 2027.",
-        "Open to students graduating December 2028 through June 2029.",
-        "Class of 2026.",
+        "Must graduate by August 2028.",  # a deadline you meet (real Akuna wording)
+        "Graduating May 2028 or later.",
     ],
 )
+def test_grad_deadlines_and_floors_pass(eligibility, text):
+    j = job(description=text)
+    eligibility(j)
+    assert j.flags == []
+
+
+@pytest.mark.parametrize(
+    "text, shown",
+    [
+        ("With an expected graduation by Summer 2027.", "by 08/2027"),  # real DV wording
+        ("Candidates graduating in Spring 2027.", "05/2027"),
+        ("Open to students graduating December 2028 through June 2029.", "12/2028-06/2029"),
+    ],
+)
+def test_near_misses_are_flagged_not_dropped(eligibility, text, shown):
+    j = job(description=text)
+    eligibility(j)
+    assert j.flags == [f"check grad date ({shown})"]
+
+
+@pytest.mark.parametrize("text", ["Class of 2026.", "Must be graduating in 2030."])
 def test_grad_window_rejects(eligibility, text):
     with pytest.raises(Rejected, match="graduation window"):
         eligibility(job(description=text))
