@@ -30,7 +30,7 @@ NAMES = {
     "ats": "firm career pages",
     "simplify": "SimplifyJobs list",
     "kadoa": "Kadoa quant list",
-    "jobspy": "LinkedIn, Indeed, ZipRecruiter, Google (slowest)",
+    "jobspy": "LinkedIn, Indeed, ZipRecruiter (slowest)",
     "alert_emails": "job-alert emails",
 }
 

@@ -20,7 +20,7 @@ flowchart TD
         direction LR
         A[Firm career pages<br/>Greenhouse · Lever · Ashby]
         B[Internship lists<br/>SimplifyJobs · Kadoa]
-        C[Job boards via JobSpy<br/>LinkedIn · Indeed · ZipRecruiter · Google]
+        C[Job boards via JobSpy<br/>LinkedIn · Indeed · ZipRecruiter]
         D[Alert emails in Gmail<br/>LinkedIn · Indeed · Handshake · eFinancialCareers]
     end
     A & B & C & D --> N[Normalize to one Posting shape]
@@ -40,7 +40,7 @@ flowchart TD
 | 2 | Firms on Workday and other portals (AQR, SIG, Citadel, Group One) | Covered through Kadoa's dataset | `scanners/lists.py` |
 | 3 | [SimplifyJobs](https://github.com/SimplifyJobs/Summer2027-Internships) internship list | JSON file on GitHub | `scanners/lists.py` |
 | 4 | [Kadoa quant-jobs](https://github.com/kadoa-org/quant-jobs) | JSON file on GitHub (about 4,300 quant roles, internships kept) | `scanners/lists.py` |
-| 5 | LinkedIn, Indeed, ZipRecruiter, Google Jobs | [JobSpy](https://github.com/speedyapply/JobSpy), public listings, logged out | `scanners/boards.py` |
+| 5 | LinkedIn, Indeed, ZipRecruiter | [JobSpy](https://github.com/speedyapply/JobSpy), public listings, logged out | `scanners/boards.py` |
 | 6 | Job-alert emails | Gmail API reads one label; job links parsed from the HTML | `scanners/alerts.py` |
 
 The engine never logs into a job site. Firm board tokens in `config/firms.yml` were taken from

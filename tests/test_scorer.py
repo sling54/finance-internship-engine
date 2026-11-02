@@ -3,7 +3,7 @@ import json
 import pytest
 from helpers import job
 
-from jobengine.scorer import ScoreReport, build_prompt, parse_reply, score_jobs
+from jobengine.scorer import LMStudio, ScoreReport, build_prompt, parse_reply, score_jobs
 
 SCORING = {
     "enabled": True,
@@ -115,3 +115,49 @@ def test_one_bad_reply_does_not_stop_the_run(tmp_path):
 def test_summary_text():
     r = ScoreReport(model="qwen", scored=4, cached=10, seconds=8.0)
     assert r.summary() == "AI scoring (qwen): 4 scored in 0.1 min (avg 2.0s each), 10 from cache"
+
+
+class FakeResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self.payload
+
+
+def reply(content, reasoning="", finish="stop"):
+    message = {"content": content, "reasoning_content": reasoning}
+    return FakeResponse({"choices": [{"message": message, "finish_reason": finish}]})
+
+
+def test_thinking_cut_off_gives_clear_error(monkeypatch):
+    lm = LMStudio("http://x/v1", max_tokens=1024)
+    monkeypatch.setattr(
+        lm.http, "post", lambda *a, **k: reply("", "Here's a thinking...", "length")
+    )
+    with pytest.raises(ValueError, match="max_tokens"):
+        lm.chat("s", "u")
+
+
+def test_asks_model_to_skip_thinking_and_notices_when_it_does_anyway(monkeypatch):
+    sent = {}
+
+    def post(url, json, timeout):
+        sent.update(json)
+        return reply('\n\n{"score": 5, "reason": "Trading"}', "Here's a thinking process...")
+
+    lm = LMStudio("http://x/v1")
+    monkeypatch.setattr(lm.http, "post", post)
+    assert parse_reply(lm.chat("s", "u")) == (5, "Trading")
+    assert sent["chat_template_kwargs"] == {"enable_thinking": False}
+    assert sent["max_tokens"] == 4096 and lm.thought
+
+
+def test_summary_reports_thinking(tmp_path):
+    lm = FakeLM()
+    lm.thought = True
+    report = score_jobs([job()], SCORING, PROFILE, tmp_path, client=lm, progress=False)
+    assert "thought before answering on 1 of 1" in report.summary()
