@@ -29,6 +29,8 @@ class Posting:
     season: str = ""
     flags: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
+    fit_score: int | None = None  # 1-5 from the local AI (scorer.py)
+    fit_reason: str = ""
 
     def text(self) -> str:
         """Title and description together, for keyword checks."""

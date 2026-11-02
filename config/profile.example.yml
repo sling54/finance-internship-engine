@@ -23,4 +23,5 @@ home_base:
   max_drive_minutes: 60
 
 # Your application tracker. Rows found here are dropped as "already applied".
-tracker_path: data/ApplicationTracker.xlsx
+tracker_path: private/ApplicationTracker.xlsx
+resume_path: private/Resume.pdf
