@@ -158,7 +158,9 @@ class FakeGmail:
         self._result = next(m for m in self.messages_ if m["id"] == id)
         return self
 
-    def execute(self):
+    def execute(self, num_retries=0):
+        if isinstance(self._result, Exception):
+            raise self._result
         return self._result
 
 
@@ -206,7 +208,7 @@ def test_sync_updates_rows_reviews_unknowns_and_reminds(tmp_path):
             ),
         ]
     )
-    report = sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=gmail)
+    report = sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=gmail, pause=0)
 
     ws = load_workbook(path)["Applications"]
     header = [c.value for c in ws[6]]
@@ -226,7 +228,7 @@ def test_sync_updates_rows_reviews_unknowns_and_reminds(tmp_path):
     assert list((tmp_path / "data" / "backups").iterdir())  # backup written first
 
     # Running again reads nothing new and changes no status.
-    again = sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=gmail)
+    again = sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=gmail, pause=0)
     assert again.emails == 0 and again.updated == []
 
 
@@ -235,3 +237,30 @@ def test_sync_refuses_while_open_in_excel(tmp_path):
     make_tracker(path)
     (tmp_path / "~$ApplicationTracker.xlsx").write_text("")
     assert sync({}, path, tmp_path, gmail=FakeGmail([])).skipped_open
+
+
+def test_sync_saves_progress_when_gmail_stops_answering(tmp_path):
+    path = tmp_path / "ApplicationTracker.xlsx"
+    make_tracker(path)
+    ok = email(
+        "b1",
+        "careers@veritionfund.com",
+        "Your application",
+        "We have decided to move forward with other candidates.",
+        1,
+    )
+    gmail = FakeGmail([ok, {"id": "b2"}])
+    original_get = gmail.get
+
+    def get(userId, id, format):
+        if id == "b2":
+            gmail._result = RuntimeError("rateLimitExceeded")
+            return gmail
+        return original_get(userId, id, format)
+
+    gmail.get = get
+    report = sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=gmail, pause=0)
+    assert report.emails == 1 and report.left == 1  # first email applied, second left for later
+    ws = load_workbook(path)["Applications"]
+    header = [c.value for c in ws[6]]
+    assert ws.cell(7, header.index("App Status") + 1).value == "Rejected"  # saved despite the stop
