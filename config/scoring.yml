@@ -7,8 +7,11 @@ enabled: true
 lm_studio:
   url: http://localhost:1234/v1   # LM Studio > Developer > Start Server
   model: qwen3.6-35b-a3b          # part of the model name is enough; blank = first chat model
-  timeout_seconds: 120
-  max_tokens: 1024
+  timeout_seconds: 180
+  max_tokens: 4096                # room for "thinking" models like Qwen3.6 to finish and answer
+
+# Ask the model to skip its thinking step. Faster when the model supports it; harmless if not.
+fast_mode: true
 
 # Long descriptions are cut to this many characters to keep each check fast.
 max_description_chars: 4000

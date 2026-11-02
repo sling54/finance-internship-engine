@@ -37,6 +37,7 @@ class ScoreReport:
     cached: int = 0
     failed: int = 0
     seconds: float = 0.0
+    thinking: int = 0  # replies where the model thought before answering
     skipped: str = ""  # why scoring didn't run at all
     stopped: str = ""  # why scoring stopped early
 
@@ -50,6 +51,8 @@ class ScoreReport:
         )
         if self.failed:
             text += f", {self.failed} failed"
+        if self.thinking:
+            text += f"\n  The model thought before answering on {self.thinking} of {self.scored}."
         if self.stopped:
             text += f"\n  Stopped early: {self.stopped}"
         return text
@@ -58,12 +61,21 @@ class ScoreReport:
 class LMStudio:
     """Talks to LM Studio's OpenAI-compatible local server."""
 
-    def __init__(self, url: str, model: str = "", timeout: int = 120, max_tokens: int = 1024):
+    def __init__(
+        self,
+        url: str,
+        model: str = "",
+        timeout: int = 180,
+        max_tokens: int = 4096,
+        no_thinking: bool = True,
+    ):
         self.url = url.rstrip("/")
         self.wanted = model
         self.timeout = timeout
         self.max_tokens = max_tokens
+        self.no_thinking = no_thinking
         self.model = ""
+        self.thought = False  # did the last reply include thinking?
         self.http = requests.Session()
 
     def pick_model(self) -> str:
@@ -80,21 +92,29 @@ class LMStudio:
         return self.model
 
     def chat(self, system: str, user: str) -> str:
-        resp = self.http.post(
-            f"{self.url}/chat/completions",
-            json={
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "temperature": 0,
-                "max_tokens": self.max_tokens,
-            },
-            timeout=self.timeout,
-        )
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0,
+            "max_tokens": self.max_tokens,
+        }
+        if self.no_thinking:  # Qwen-style switch; servers that don't know it ignore it
+            body["chat_template_kwargs"] = {"enable_thinking": False}
+        resp = self.http.post(f"{self.url}/chat/completions", json=body, timeout=self.timeout)
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"] or ""
+        choice = resp.json()["choices"][0]
+        message = choice.get("message", {})
+        content = message.get("content") or ""
+        self.thought = bool(message.get("reasoning_content")) or "<think>" in content
+        if not content.strip() and choice.get("finish_reason") == "length":
+            raise ValueError(
+                f"the model was still thinking when it hit max_tokens ({self.max_tokens}); "
+                "raise max_tokens in config/scoring.yml"
+            )
+        return content
 
 
 def parse_reply(text: str) -> tuple[int, str]:
@@ -191,7 +211,11 @@ def score_jobs(
     lm = scoring.get("lm_studio", {})
     url = lm.get("url", "http://localhost:1234/v1")
     client = client or LMStudio(
-        url, lm.get("model", ""), lm.get("timeout_seconds", 120), lm.get("max_tokens", 1024)
+        url,
+        lm.get("model", ""),
+        lm.get("timeout_seconds", 180),
+        lm.get("max_tokens", 4096),
+        scoring.get("fast_mode", True),
     )
     try:
         report.model = client.pick_model()
@@ -237,6 +261,7 @@ def score_jobs(
             continue
         report.seconds += time.monotonic() - start
         report.scored += 1
+        report.thinking += bool(getattr(client, "thought", False))
         failures_in_a_row = 0
         job.fit_score, job.fit_reason = score, reason
         cache["|".join(job_key(job))] = {"score": score, "reason": reason, "version": version}

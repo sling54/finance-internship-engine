@@ -15,7 +15,7 @@ kadoa:          # source 4
 
 jobspy:         # source 5 (needs: pip install -e ".[jobspy]")
   enabled: true
-  sites: [linkedin, indeed, zip_recruiter, google]
+  sites: [linkedin, indeed, zip_recruiter]   # google removed: JobSpy returns no data (Nov 2026)
   hours_old: 24
   passes:
     - location: United States
