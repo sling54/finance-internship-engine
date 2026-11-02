@@ -24,6 +24,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=SOURCES,
         help="run just these sources (default: all enabled in sources.yml)",
     )
+    scan.add_argument("--no-ai", action="store_true", help="skip the AI fit score this run")
     sub.add_parser("zone", help="draw the drive-time zone with OpenRouteService (one API call)")
 
     args = parser.parse_args(argv)
@@ -57,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from .pipeline import run
 
-    result = run(cfg, set(args.only) if args.only else None)
+    result = run(cfg, set(args.only) if args.only else None, ai=not args.no_ai)
     print(result.summary())
     print("Wrote data/jobs_latest.csv and today's rejected_*.csv")
     return 0

@@ -27,7 +27,7 @@ def collected():
 
 
 def test_end_to_end(cfg, tmp_path):
-    make_tracker(tmp_path / "data" / "ApplicationTracker.xlsx")
+    make_tracker(tmp_path / "private" / "ApplicationTracker.xlsx")
     result = run_filters(collected(), build_filters(cfg, tmp_path))
 
     kept = {(j.company, j.title) for j in result.kept}

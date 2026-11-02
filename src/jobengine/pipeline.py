@@ -19,6 +19,7 @@ from .filters.season import SeasonFilter
 from .filters.titles import TitleFilter
 from .models import Posting, Rejected
 from .scanners import alerts, ats, boards, lists
+from .scorer import ScoreReport, score_jobs
 from .zone import DriveZone
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class Result:
     kept: list[Posting] = field(default_factory=list)
     rejected: list[tuple[Posting, str]] = field(default_factory=list)
     collected: Counter = field(default_factory=Counter)
+    ai: ScoreReport | None = None
 
     def summary(self) -> str:
         reasons = Counter(r.split(":")[0] for _, r in self.rejected)
@@ -38,6 +40,8 @@ class Result:
             f"Kept: {len(self.kept)}   Dropped: {len(self.rejected)}",
         ]
         lines += [f"  - {reason}: {n}" for reason, n in reasons.most_common(8)]
+        if self.ai:
+            lines.append(self.ai.summary())
         return "\n".join(lines)
 
 
@@ -107,6 +111,8 @@ def mark_new(kept: list[Posting], seen_path: Path) -> None:
 
 
 COLUMNS = [
+    "fit_score",
+    "fit_reason",
     "priority",
     "track",
     "company",
@@ -136,11 +142,13 @@ def write_csv(path: Path, jobs: list[Posting], reasons: list[str] | None = None)
             writer.writerow(row)
 
 
-def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT) -> Result:
+def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT, ai: bool = True) -> Result:
     jobs = collect(cfg, only, root)
     result = run_filters(jobs, build_filters(cfg, root, DriveZone.load(root)))
     data = root / "data"
     mark_new(result.kept, data / "seen.json")
+    if ai:
+        result.ai = score_jobs(result.kept, cfg.scoring, cfg.profile, root)
     today = date.today().isoformat()
     write_csv(data / f"jobs_{today}.csv", result.kept)
     write_csv(data / "jobs_latest.csv", result.kept)
