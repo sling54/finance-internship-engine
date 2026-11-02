@@ -418,3 +418,48 @@ def test_find_jobs_by_words_or_url(tmp_path):
     assert [r["company"] for r in find_jobs(csv_path, "gelber discretionary")] == ["Gelber Group"]
     assert [r["company"] for r in find_jobs(csv_path, "https://b")] == ["DV Trading"]
     assert len(find_jobs(csv_path, "trading")) == 2
+
+
+def test_review_rejection_uses_stored_status(tmp_path):
+    """Belvedere's rejection subject is just "Application Update"; the status read from the
+    full email is kept in Review's "Looks like" column and used on the retry."""
+    path = tmp_path / "ApplicationTracker.xlsx"
+    make_tracker(path)
+    wb = load_workbook(path)
+    review = wb.create_sheet("Review")
+    review.append(["Email date", "From", "Subject", "Looks like", "What to do"])
+    lever = "no-reply@hire.lever.co"
+    review.append(
+        [
+            datetime(2026, 10, 6),
+            lever,
+            "Thank you for your application to Belvedere "
+            "Trading - Quantitative Trading Intern - Summer 2027",
+            "Confirmed",
+            "",
+        ]
+    )
+    review.append(
+        [
+            datetime(2026, 10, 6),
+            lever,
+            "Thank you for your application to Belvedere "
+            "Trading - Quantitative Trading Intern - Winter Quarter 2027",
+            "Confirmed",
+            "",
+        ]
+    )
+    review.append(
+        [
+            datetime(2026, 10, 27),
+            lever,
+            "Belvedere Trading Application Update - Quantitative Trading Intern - Summer 2027",
+            "Rejected",
+            "",
+        ]
+    )
+    wb.save(path)
+    sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=FakeGmail([]), pause=0)
+    assert app_status(path, 11)[1:] == ["Quantitative Trading Intern - Summer 2027", "Rejected"]
+    assert app_status(path, 12)[2] == "Confirmed"  # the Winter Quarter role is untouched
+    assert load_workbook(path)["Review"].max_row == 1  # all three cleared

@@ -221,7 +221,12 @@ def firm_and_role(sender: str, subject: str) -> tuple[str, str] | None:
         if not m:
             continue
         company = m.group("company").strip(" '.")
-        company = re.sub(r"\s+(US|USA|LLC|Inc|Ltd|LP)$", "", company)
+        company = re.sub(
+            r"\s+(US|USA|LLC|Inc|Ltd|LP|Internships?|Careers|Campus|Recruiting)$",
+            "",
+            company,
+            flags=re.I,
+        )
         if len(company) < 2 or company.lower() in _NOT_COMPANIES:
             continue
         role = (m.groupdict().get("role") or "").strip(" -–!.")
@@ -486,8 +491,9 @@ def apply_email(
     subject: str,
     body: str,
     report: SyncReport,
+    known_status: str = "",
 ) -> None:
-    status = classify(subject, body)
+    status = classify(subject, body) or known_status
     if not status:
         return
     company = match_company(sender, subject, body, sorted({r.company for r in rows}))
@@ -565,14 +571,25 @@ def sync(
 
     # Emails parked in Review by earlier runs get another try with the current rules.
     cleared = []
-    for index, when, sender, subject, _ in tracker.review_items():
+    for index, when, sender, subject, looked_like in tracker.review_items():
         before = len(report.added) + len(report.updated)
         review_before = report.review
-        apply_email(tracker, rows, when or date.today(), sender, subject, "", report)
+        # The Review sheet keeps the status read from the full email ("Looks like"), because a
+        # subject such as "Application Update" doesn't say whether it was a rejection.
+        apply_email(
+            tracker,
+            rows,
+            when or date.today(),
+            sender,
+            subject,
+            "",
+            report,
+            known_status=looked_like,
+        )
         if report.review > review_before:  # still unreadable: remove the duplicate just added
             tracker.wb["Review"].delete_rows(tracker.wb["Review"].max_row)
             report.review -= 1
-        elif len(report.added) + len(report.updated) > before or classify(subject, ""):
+        elif len(report.added) + len(report.updated) > before or looked_like:
             cleared.append(index)
     tracker.drop_review_rows(cleared)
 
