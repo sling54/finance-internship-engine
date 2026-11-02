@@ -8,6 +8,8 @@ Nothing logs into the job sites themselves.
 from __future__ import annotations
 
 import base64
+import gzip
+import json
 import logging
 import re
 from html.parser import HTMLParser
@@ -47,8 +49,13 @@ _NOT_TITLES = re.compile(
 _SEPARATORS = re.compile(r"\s*(?:·|•|\||–| - )\s*")
 
 
+_BLOCKS = ("br", "p", "div", "td", "tr", "li", "table")
+
+
 class _Flow(HTMLParser):
-    """Turns HTML into an ordered list of ("link", href, text) and ("text", text) items."""
+    """Turns HTML into an ordered list of ("link", href, [text lines]) and ("text", text) items.
+    A link's text keeps its line breaks: LinkedIn puts a whole job card (title, then
+    "Company · Location", then pay) inside one link."""
 
     def __init__(self):
         super().__init__()
@@ -60,15 +67,22 @@ class _Flow(HTMLParser):
         if tag == "a":
             self._flush_text()
             self._href = dict(attrs).get("href") or ""
-        elif tag in ("br", "p", "div", "td", "tr", "li"):
-            self._flush_text()
+        elif tag in _BLOCKS:
+            if self._href is None:
+                self._flush_text()
+            else:
+                self._buf.append("\n")
 
     def handle_endtag(self, tag):
         if tag == "a" and self._href is not None:
-            self.items.append(("link", self._href, " ".join("".join(self._buf).split())))
+            lines = [" ".join(x.split()) for x in "".join(self._buf).split("\n")]
+            self.items.append(("link", self._href, [x for x in lines if x]))
             self._href, self._buf = None, []
-        elif tag in ("p", "div", "td", "tr", "li"):
-            self._flush_text()
+        elif tag in _BLOCKS:
+            if self._href is None:
+                self._flush_text()
+            else:
+                self._buf.append("\n")
 
     def handle_data(self, data):
         self._buf.append(data)
@@ -81,8 +95,23 @@ class _Flow(HTMLParser):
             self._buf = []
 
 
+# Indeed wraps every link as cts.indeed.com/v3/<gzip+base64 JSON>; the real URL is in "u".
+_INDEED_WRAP = re.compile(r"cts\.indeed\.com/v\d+/(H4sI[A-Za-z0-9_\-]+)")
+
+
+def _unwrap(href: str) -> str:
+    m = _INDEED_WRAP.search(href)
+    if not m:
+        return href
+    payload = m.group(1) + "=" * (-len(m.group(1)) % 4)
+    try:
+        return json.loads(gzip.decompress(base64.urlsafe_b64decode(payload))).get("u", href)
+    except (ValueError, OSError, AttributeError):
+        return href
+
+
 def _match_job(href: str) -> tuple[str, str] | None:
-    decoded = unquote(unquote(href))
+    decoded = unquote(unquote(_unwrap(href)))
     for site, (pattern, _) in JOB_LINKS.items():
         m = pattern.search(decoded)
         if m:
@@ -90,9 +119,14 @@ def _match_job(href: str) -> tuple[str, str] | None:
     return None
 
 
+def _is_title(lines: list[str]) -> bool:
+    return bool(lines) and len(lines[0]) >= 4 and not _NOT_TITLES.match(lines[0])
+
+
 def parse_alert_html(html_body: str) -> list[Posting]:
-    """Extract jobs from one alert email: title from the link text, company and location
-    from the text right after it (sites print "Company · Location" under each title)."""
+    """Extract jobs from one alert email. The title is the job link's first line; company and
+    location come from the link's next line (LinkedIn cards) or the text after it (Indeed,
+    Handshake, eFinancialCareers print "Company · Location" under each title)."""
     flow = _Flow()
     flow.feed(html_body)
     flow._flush_text()
@@ -103,43 +137,30 @@ def parse_alert_html(html_body: str) -> list[Posting]:
         if item[0] != "link":
             continue
         hit = _match_job(item[1])
-        if not hit:
+        if not hit or hit in jobs:
+            continue  # not a job link, or the same job linked twice (logo + title)
+        lines = item[2]
+        if not _is_title(lines):
+            # Logo or "View job" button: use a nearby link to the same job that has a title.
+            nearby = [n for n in items[i + 1 : i + 6] if n[0] == "link" and _match_job(n[1]) == hit]
+            lines = next((n[2] for n in nearby if _is_title(n[2])), [])
+        if not lines:
             continue
-        site, job_id = hit
-        title = item[2]
-        key = (site, job_id)
-        if key in jobs:
-            continue  # same job linked twice (logo + title); first title wins
-        if not title or _NOT_TITLES.match(title) or len(title) < 4:
-            # Logo or button link: look for the real title link for this job later.
-            title = ""
-        details: list[str] = []
-        for nxt in items[i + 1 : i + 4]:
-            if nxt[0] == "link":
-                if _match_job(nxt[1]) and _match_job(nxt[1]) != hit:
+        details = [p for line in lines[1:2] for p in _SEPARATORS.split(line) if p]
+        if not details:
+            for nxt in items[i + 1 : i + 8]:
+                if nxt[0] == "link":
+                    if _match_job(nxt[1]) not in (None, hit):
+                        break  # reached the next job
+                    continue
+                details.extend(p for p in _SEPARATORS.split(nxt[1]) if p)
+                if len(details) >= 2:
                     break
-                continue
-            details.extend(p for p in _SEPARATORS.split(nxt[1]) if p)
-            if len(details) >= 2:
-                break
-        if not title:
-            # Try the next link to the same job for its text.
-            for nxt in items[i + 1 : i + 6]:
-                if (
-                    nxt[0] == "link"
-                    and _match_job(nxt[1]) == hit
-                    and nxt[2]
-                    and not _NOT_TITLES.match(nxt[2])
-                ):
-                    title = nxt[2]
-                    break
-        if not title:
-            continue
-        jobs[key] = Posting(
+        jobs[hit] = Posting(
             company=details[0] if details else "",
-            title=title,
-            url=JOB_LINKS[site][1].format(id=job_id),
-            source=f"alert:{site}",
+            title=lines[0],
+            url=JOB_LINKS[hit[0]][1].format(id=hit[1]),
+            source=f"alert:{hit[0]}",
             locations=details[1:2],
             flags=[] if details else ["company unknown"],
         )

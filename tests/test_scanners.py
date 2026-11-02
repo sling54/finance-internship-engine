@@ -84,6 +84,28 @@ def test_linkedin_alert_email():
     assert jobs[0].url == "https://www.linkedin.com/jobs/view/4012345678/"
 
 
+def test_real_indeed_layout_with_wrapped_links():
+    (job,) = parse_alert_html(load_fixture("alert_indeed_real_layout.html"))
+    assert (job.title, job.company, job.locations) == (
+        "Associate - Portfolio Strategy",
+        "Example Capital LLC",
+        ["Coral Gables, FL 33134"],
+    )
+    assert job.url == "https://www.indeed.com/viewjob?jk=2b26f3a0529ff10e"
+
+
+def test_real_linkedin_layout_with_whole_card_links():
+    jobs = parse_alert_html(load_fixture("alert_linkedin_real_layout.html"))
+    assert [(j.title, j.company, j.locations) for j in jobs] == [
+        ("Trading Services Associate I", "Example Bank", ["New York, NY (On-site)"]),
+        (
+            "Graduate Equity Analyst (2027 Start - Chicago)",
+            "Sample Markets",
+            ["Chicago, IL (On-site)"],
+        ),
+    ]
+
+
 def test_mixed_alert_email_with_tracking_link():
     jobs = {j.source: j for j in parse_alert_html(load_fixture("alert_mixed.html"))}
     assert set(jobs) == {"alert:indeed", "alert:handshake", "alert:efinancialcareers"}
