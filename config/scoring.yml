@@ -1,0 +1,28 @@
+# Feature 3: fit score from 1 to 5 for every role that passes the filters.
+# A local model (LM Studio, Ollama or any OpenAI-compatible server) rates five dimensions;
+# the weighted total is computed in code, so the scoring rule is fixed and auditable.
+
+enabled: false
+
+llm:
+  base_url: http://localhost:1234/v1     # LM Studio's local server (Developer tab -> Start)
+  model: openai/gpt-oss-120b             # must match the model id LM Studio shows
+  timeout_seconds: 180
+  max_description_chars: 5000
+
+# Weights must add up to 1.
+weights:
+  relevance: 0.30   # how close the role is to trading, quant or derivatives
+  skills: 0.20      # required skills vs your resume
+  pay: 0.20         # posted pay, or the firm's known intern pay
+  odds: 0.15        # your chances: gaps such as a GPA cutoff above yours
+  learning: 0.15    # desk exposure, mentorship, firm reputation
+
+# What each score triggers.
+actions:
+  tailored: 4.0     # >= 4.0: fully tailored resume and essays
+  standard: 3.0     # 3.0-3.9: standard application packet
+                    # below 3.0: skip (kept in the CSV with the reason)
+
+# Score at most this many new roles per run (each call takes a few seconds locally).
+max_per_run: 200

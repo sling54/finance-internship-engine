@@ -223,6 +223,7 @@ __marimo__/
 # Your real profile, tracker, resume, keys and all engine output stay local.
 config/profile.yml
 config/firms.local.yml
+config/resume.md
 data/
 *.xlsx
 *.xls

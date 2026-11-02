@@ -24,6 +24,17 @@ def main(argv: list[str] | None = None) -> int:
         choices=SOURCES,
         help="run just these sources (default: all enabled in sources.yml)",
     )
+    score = scan.add_mutually_exclusive_group()
+    score.add_argument(
+        "--score",
+        dest="score",
+        action="store_true",
+        default=None,
+        help="rate kept roles 1-5 with the local model (overrides scoring.yml)",
+    )
+    score.add_argument(
+        "--no-score", dest="score", action="store_false", help="skip scoring this run"
+    )
     sub.add_parser("zone", help="draw the drive-time zone with OpenRouteService (one API call)")
 
     args = parser.parse_args(argv)
@@ -57,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from .pipeline import run
 
-    result = run(cfg, set(args.only) if args.only else None)
+    result = run(cfg, set(args.only) if args.only else None, score=args.score)
     print(result.summary())
     print("Wrote data/jobs_latest.csv and today's rejected_*.csv")
     return 0

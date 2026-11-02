@@ -24,6 +24,7 @@ class Config:
     sources: dict
     profile: dict
     profile_is_example: bool
+    scoring: dict
 
     @classmethod
     def load(cls, config_dir: Path = CONFIG_DIR) -> Config:
@@ -42,4 +43,5 @@ class Config:
             sources=load_yaml(config_dir / "sources.yml"),
             profile=load_yaml(profile_path),
             profile_is_example=is_example,
+            scoring=load_yaml(config_dir / "scoring.yml"),
         )

@@ -22,5 +22,14 @@ home_base:
   lat: 25.7562
   max_drive_minutes: 60
 
+# Plain-text copy of your resume, used by the fit scorer. Git-ignored.
+resume_path: config/resume.md
+
+# One line each: what makes you a fit. The scorer reads these with your resume.
+highlights:
+  - Leads derivatives for a student-managed investment fund (options, futures, hedging)
+  - Python and Excel; studying for the SIE exam
+  - Former private equity analyst intern
+
 # Your application tracker. Rows found here are dropped as "already applied".
 tracker_path: data/ApplicationTracker.xlsx

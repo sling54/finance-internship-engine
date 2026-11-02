@@ -68,6 +68,25 @@ removed, and titles are matched on their word sets with years and filler removed
 the most trusted source (firm board > Kadoa > Simplify > boards and emails) is kept, and the
 other copies add their locations and sources.
 
+## Fit score
+
+Every role that passes the filters gets a 1–5 score from a local model (LM Studio, Ollama or any
+OpenAI-compatible server), so resumes and postings never leave the laptop. The model only rates
+five dimensions from 1 to 5; the weighted total and the action are computed in code
+(`scoring.py`), so the rule is fixed, testable and the same on every run.
+
+| Dimension | Weight | What it measures |
+|-----------|--------|------------------|
+| Relevance | 30% | How close the role is to trading, quant or derivatives |
+| Skills | 20% | Required skills vs the resume |
+| Pay | 20% | Posted pay, or the firm's known intern pay |
+| Odds | 15% | Realistic chance given GPA cutoffs, degree level, graduation date |
+| Learning | 15% | Desk exposure, mentorship, firm reputation |
+
+4.0+ → fully tailored application · 3.0–3.9 → standard application · below 3.0 → skip.
+Ratings are cached, so each role is scored once. If the model is offline, roles stay in the
+list marked `not scored yet`.
+
 **Drive time.** City lists in `config/sources.yml` decide most cases offline. For Florida places
 not on the lists, the engine can check against a real 60-minute driving zone from
 [OpenRouteService](https://openrouteservice.org) (one API call to draw it, cached afterwards).
@@ -94,11 +113,13 @@ jobengine -v scan                       # log every source call
 pip install -e ".[jobspy]"              # enable job boards (set jobspy.enabled: true)
 pip install -e ".[gmail]"               # enable alert emails (set alert_emails.enabled: true)
 jobengine zone                          # draw the drive-time zone (needs ORS_API_KEY in .env)
+jobengine scan --score                  # rate kept roles with the local model (config/scoring.yml)
 ```
 
 ## Privacy
 
-Personal files never reach this repo. `.gitignore` excludes `config/profile.yml`, the `data/`
+Personal files never reach this repo. `.gitignore` excludes `config/profile.yml`,
+`config/resume.md`, the `data/`
 folder (results, tracker, caches), spreadsheets, PDFs, `.env` and Google OAuth tokens. The
 committed `profile.example.yml` holds fake data, and the tests always run against it.
 
@@ -108,18 +129,20 @@ committed `profile.example.yml` holds fake data, and the tests always run agains
 pytest -q
 ```
 
-57 tests cover each source parser, each filter (including the five location cases from the
-design), de-duplication and an end-to-end run against a fixture tracker spreadsheet. GitHub
+74 tests cover each source parser, each filter (including the five location cases from the
+design and real posting wording for graduation dates), de-duplication, the fit scorer with a
+fake model, and an end-to-end run against a fixture tracker spreadsheet. GitHub
 Actions runs lint and tests on Python 3.10 and 3.12 on every push.
 
 ## Project layout
 
 ```
-config/          titles.yml, firms.yml, sources.yml, profile.example.yml
+config/          titles.yml, firms.yml, sources.yml, scoring.yml, profile.example.yml
 src/jobengine/
   scanners/      ats.py, lists.py, boards.py, alerts.py
   filters/       titles.py, eligibility.py, season.py, location.py, dedup.py, applied.py
-  pipeline.py    collect -> dedupe -> filter -> CSV
+  pipeline.py    collect -> dedupe -> filter -> score -> CSV
+  scoring.py     1-5 fit score from a local model
   zone.py        OpenRouteService drive-time zone
   cli.py         `jobengine scan`, `jobengine zone`
 tests/           pytest suite and fixtures
@@ -128,7 +151,7 @@ tests/           pytest suite and fixtures
 ## Roadmap
 
 - [x] Collect from six sources, de-duplicate, filter by title, eligibility, season, location
-- [ ] Fit score (1–5) for each role from a local LLM, weighted by relevance, skills, pay, odds
+- [x] Fit score (1–5) for each role from a local LLM, weighted by relevance, skills, pay, odds
 - [ ] Application packets: tailored resume and prefilled answers (submission stays manual)
 - [ ] Tracker sync: Gmail status emails update the application spreadsheet
 - [ ] Outreach: recruiter contact drafts, sent only after approval

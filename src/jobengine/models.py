@@ -30,6 +30,11 @@ class Posting:
     flags: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
 
+    # Filled in by the scorer (Feature 3)
+    score: float | None = None
+    action: str = ""  # tailored | standard | skip
+    score_reason: str = ""
+
     def text(self) -> str:
         """Title and description together, for keyword checks."""
         return f"{self.title}\n{self.description}"
