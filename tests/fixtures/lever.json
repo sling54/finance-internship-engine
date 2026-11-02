@@ -1,0 +1,12 @@
+[
+  {
+    "id": "a1b2c3",
+    "text": "Trading Intern (Summer 2027)",
+    "hostedUrl": "https://jobs.lever.co/example/a1b2c3",
+    "categories": {"location": "Chicago, IL", "commitment": "Intern", "team": "Trading",
+                   "allLocations": ["Chicago, IL", "Boulder, CO"]},
+    "createdAt": 1793633760000,
+    "descriptionPlain": "Class of 2028 students welcome.",
+    "workplaceType": "onsite"
+  }
+]

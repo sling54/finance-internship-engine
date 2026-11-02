@@ -1,0 +1,24 @@
+{
+  "jobs": [
+    {
+      "id": "f00d",
+      "title": "Quantitative Trader - 2027 Micro-Internship Program (January Start)",
+      "location": "Chicago",
+      "secondaryLocations": [{"location": "New York"}],
+      "jobUrl": "https://jobs.ashbyhq.com/example/f00d",
+      "publishedAt": "2026-10-15T10:00:00.000+00:00",
+      "employmentType": "Intern",
+      "isRemote": false,
+      "isListed": true,
+      "descriptionPlain": "A four-week program for penultimate-year students."
+    },
+    {
+      "id": "beef",
+      "title": "Hidden role",
+      "location": "Chicago",
+      "jobUrl": "https://jobs.ashbyhq.com/example/beef",
+      "employmentType": "FullTime",
+      "isListed": false
+    }
+  ]
+}
