@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import shutil
+import time
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -323,6 +324,7 @@ class SyncReport:
     review: int = 0
     reminders: int = 0
     skipped_open: bool = False
+    left: int = 0  # emails not read because Gmail stopped answering
 
     def summary(self) -> str:
         if self.skipped_open:
@@ -332,6 +334,11 @@ class SyncReport:
             f"{self.review} sent to Review, {self.reminders} follow-up reminders."
         ]
         lines += [f"  - {u}" for u in self.updated]
+        if self.left:
+            lines.append(
+                f"Gmail paused us with {self.left} emails left; run again in a minute "
+                "to finish (progress is saved)."
+            )
         return "\n".join(lines)
 
 
@@ -390,6 +397,7 @@ def sync(
     days: int = 2,
     today: date | None = None,
     gmail=None,
+    pause: float = 0.1,
 ) -> SyncReport:
     report = SyncReport()
     if is_open_in_excel(tracker_path):
@@ -419,7 +427,18 @@ def sync(
         for ref in sorted(refs, key=lambda r: r["id"]):
             if ref["id"] in done:
                 continue
-            msg = gmail.users().messages().get(userId="me", id=ref["id"], format="full").execute()
+            try:
+                # num_retries backs off and retries when Gmail answers "rate limit exceeded".
+                msg = (
+                    gmail.users()
+                    .messages()
+                    .get(userId="me", id=ref["id"], format="full")
+                    .execute(num_retries=6)
+                )
+            except Exception as exc:  # still refused after retries: keep what's done, stop
+                log.warning("Gmail stopped answering (%s); saving progress", exc)
+                report.left = len([r for r in refs if r["id"] not in done])
+                break
             payload = msg.get("payload", {})
             when = datetime.fromtimestamp(
                 int(msg.get("internalDate", 0)) / 1000, tz=timezone.utc
@@ -435,6 +454,7 @@ def sync(
             )
             report.emails += 1
             done.add(ref["id"])
+            time.sleep(pause)  # stay well under Gmail's per-user rate limit
 
     apply_reminders(tracker, rows, today or date.today(), report)
     tracker.save(root / "data" / "backups")
