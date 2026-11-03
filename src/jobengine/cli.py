@@ -66,6 +66,9 @@ def main(argv: list[str] | None = None) -> int:
     applied.add_argument("--company", help="add this firm directly instead of searching")
     applied.add_argument("--role", default="", help="role title, with --company")
     sub.add_parser("zone", help="draw the drive-time zone with OpenRouteService (one API call)")
+    sub.add_parser("removed", help="list roles you or the engine removed")
+    restore = sub.add_parser("restore", help="bring back a removed role")
+    restore.add_argument("url", help="the role's exact URL, as shown by jobengine removed")
 
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -78,6 +81,27 @@ def main(argv: list[str] | None = None) -> int:
         return initialize(ROOT)
     if args.command == "applied" and not (args.company or args.search):
         applied.error("provide a search query or --company")
+    if args.command == "removed":
+        from . import removed
+
+        entries = removed.load(ROOT)
+        if not entries:
+            print("No removed roles.")
+        for url, e in sorted(entries.items(), key=lambda item: item[1]["date"]):
+            print(f"{e['date']}  {e['reason']} (by {e['by']})  {e['company']} - {e['title']}")
+            print(f"    {url}")
+        return 0
+    if args.command == "restore":
+        from . import removed
+
+        entry = removed.remove(ROOT, args.url)
+        if entry is None:
+            print("No removed role has that URL. Run jobengine removed to see them.")
+            return 1
+        print(
+            f"Restored: {entry['company']} - {entry['title']}. It will appear again after the next scan."
+        )
+        return 0
 
     cfg = Config.load()
     if cfg.profile_is_example:

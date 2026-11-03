@@ -9,6 +9,10 @@ model are optional for scanning.
 
 - `src/jobengine/` holds the CLI and application code. `tracker_sync.py` handles Gmail-to-tracker sync.
 - `config/*.yml` holds settings. Keep configurable behavior there.
+- `src/jobengine/removed.py` is the one list of removed roles. Any code that removes a role
+  (results page, link checks, an application agent) must call its `add`, `remove`,
+  and `contains`, with `by` set to `user`, `link_check`, or `apply_agent`. Don't
+  keep a separate list.
 - `tests/` holds the tests. Use fake data from `config/profile.example.yml`.
 
 ## Setup and tests

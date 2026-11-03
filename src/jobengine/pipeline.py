@@ -12,11 +12,13 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from . import removed
 from .config import ROOT, Config
 from .filters.applied import AppliedFilter, read_tracker
 from .filters.dedup import dedupe, job_key
 from .filters.eligibility import EligibilityFilter
 from .filters.location import LocationFilter
+from .filters.removed import RemovedFilter
 from .filters.season import SeasonFilter
 from .filters.titles import TitleFilter
 from .models import Posting, Rejected
@@ -91,6 +93,7 @@ def build_filters(cfg: Config, root: Path = ROOT, zone: DriveZone | None = None)
     titles = TitleFilter(cfg.titles)
     tracker = root / cfg.profile.get("tracker_path", "data/ApplicationTracker.xlsx")
     return [
+        ("removed", RemovedFilter(removed.load(root))),  # first, so its reason is the one logged
         ("title", titles),
         ("eligibility", EligibilityFilter(cfg.profile)),
         ("season", SeasonFilter(cfg.profile)),
