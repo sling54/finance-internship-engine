@@ -373,6 +373,10 @@ class Tracker:
         values = {"date": when, "company": company, "role": role}
         for key, value in values.items():
             cell = self.ws.cell(index, self.cols[key], value)
+            if key in {"company", "role"}:
+                cell.data_type = (
+                    "s"  # Posting text must be stored as text, even if it starts with "=".
+                )
             if last > self.header_row:
                 above = self.ws.cell(last, self.cols[key])
                 cell.number_format = above.number_format
@@ -454,6 +458,9 @@ def pick_row(rows: list[Row], company: str, subject: str, body: str) -> Row:
 # ---------- recording an application yourself ----------
 
 
+TRACKER_OPEN_MESSAGE = "Tracker is open in Excel; close it and run again (nothing was changed)."
+
+
 def record_application(
     tracker_path: Path,
     root: Path,
@@ -464,7 +471,7 @@ def record_application(
 ) -> str:
     """Add an application you just submitted, for firms that never send a confirmation."""
     if is_open_in_excel(tracker_path):
-        return "Tracker is open in Excel; close it and run again (nothing was changed)."
+        return TRACKER_OPEN_MESSAGE
     tracker = Tracker(tracker_path)
     for row in tracker.rows():
         if company_key(row.company) == company_key(company) and same_role(row.role, role):

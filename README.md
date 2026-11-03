@@ -124,6 +124,17 @@ pip install -e ".[gmail]"               # enable alert emails (set alert_emails.
 jobengine zone                          # draw the drive-time zone (needs ORS_API_KEY in .env)
 ```
 
+## Browse results in your browser
+
+After a scan, run `jobengine results` to open the latest postings in your default
+browser. Filter by track, open a posting with **Apply**, and click **I applied**
+after submitting it. The role disappears from the page once it is recorded in
+your tracker. If the tracker is open in Excel, close it and try again.
+
+The page is served only on your computer. Keep the terminal open while using it,
+and press Ctrl+C to stop the server. If you have no results yet, run
+`jobengine scan --no-ai`.
+
 ## Tracker that updates itself
 
 `jobengine track` reads recent job emails from Gmail and keeps the application spreadsheet
