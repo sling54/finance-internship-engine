@@ -8,25 +8,80 @@ which is git-ignored like the rest of data/.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
+import shutil
 import tempfile
 from datetime import date
 from pathlib import Path
 
 REMOVED_BY = ("user", "link_check", "apply_agent")
 
+log = logging.getLogger(__name__)
+
+
+class UnreadableRemovedFile(Exception):
+    """data/removed.json is damaged and no copy of it could be saved, so it must not be
+    overwritten."""
+
 
 def path(root: Path) -> Path:
     return root / "data" / "removed.json"
 
 
-def load(root: Path) -> dict[str, dict]:
-    """Every entry, keyed by URL."""
+def _parse(raw: bytes) -> dict[str, dict]:
+    data = json.loads(raw.decode("utf-8"))
+    if not isinstance(data, dict) or not all(isinstance(v, dict) for v in data.values()):
+        raise ValueError("expected an object of entries keyed by URL")
+    return data
+
+
+def _keep_copy(file: Path, raw: bytes) -> Path:
+    """Save the damaged file beside it, once per distinct content."""
+    copy = file.with_name(f"{file.name}.unreadable-{hashlib.sha256(raw).hexdigest()[:12]}")
+    if not copy.exists():
+        shutil.copy2(file, copy)
+    return copy
+
+
+def _read(root: Path, for_write: bool) -> dict[str, dict]:
     file = path(root)
-    if not file.exists():
+    try:
+        raw = file.read_bytes()
+    except FileNotFoundError:
         return {}
-    return json.loads(file.read_text(encoding="utf-8"))
+    try:
+        return _parse(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        problem = exc
+    try:
+        copy = _keep_copy(file, raw)
+    except OSError as exc:
+        log.warning(
+            "%s can't be read (%s) and no copy could be saved (%s). Roles removed earlier "
+            "will show again, and nothing will be written to that file until it is fixed.",
+            file,
+            problem,
+            exc,
+        )
+        if for_write:
+            raise UnreadableRemovedFile(str(file)) from exc
+        return {}
+    log.warning(
+        "%s can't be read (%s). A copy was saved as %s. Roles removed earlier will show "
+        "again until you fix the file or copy its entries back.",
+        file,
+        problem,
+        copy.name,
+    )
+    return {}
+
+
+def load(root: Path) -> dict[str, dict]:
+    """Every entry, keyed by URL. A damaged file is copied aside and read as empty."""
+    return _read(root, for_write=False)
 
 
 def _save(root: Path, entries: dict[str, dict]) -> None:
@@ -64,7 +119,7 @@ def add(
         raise ValueError(f"by must be one of {', '.join(REMOVED_BY)}")
     if not reason:
         raise ValueError("a removed role needs a reason")
-    entries = load(root)
+    entries = _read(root, for_write=True)  # a damaged file is copied aside before any write
     if url in entries:
         return False
     entries[url] = {
@@ -80,7 +135,7 @@ def add(
 
 def remove(root: Path, url: str) -> dict | None:
     """Restore a role. Returns its entry, or None if the URL wasn't listed."""
-    entries = load(root)
+    entries = _read(root, for_write=True)
     entry = entries.pop(url, None)
     if entry is not None:
         _save(root, entries)

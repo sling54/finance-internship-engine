@@ -61,6 +61,21 @@ def _apply_url(value):
     return ""
 
 
+NOTES = {
+    "not verified": "Not verified: we couldn't confirm this listing is still open.",
+    "redirects to careers page": "Link goes to a careers home page; search for the role there.",
+}
+
+
+def _notes(flags):
+    names = {flag.strip() for flag in flags.split(";")}
+    return "".join(
+        f'<strong class="note">{escape(text)}</strong>'
+        for flag, text in NOTES.items()
+        if flag in names
+    )
+
+
 def _page(roles, track, token, message):
     tracks = sorted({row["track"] for row in roles.values()} - {""})
     options = ['<option value="">All tracks</option>']
@@ -83,7 +98,7 @@ def _page(roles, track, token, message):
             else "Apply link unavailable"
         )
         rows.append(
-            f"<tr>{cells}<td>{link}"
+            f"<tr>{cells}<td>{link}{_notes(row['flags'])}"
             '<form method="post" action="/applied">'
             f'<input type="hidden" name="token" value="{token}">'
             f'<input type="hidden" name="track" value="{escape(track)}">'
@@ -103,6 +118,8 @@ body {{ font: 1rem system-ui; margin: 2rem; }}
 table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; }}
 th, td {{ padding: .65rem; border-bottom: 1px solid #ccc; text-align: left; }}
 td form {{ margin-top: .4rem; }}
+.note {{ display: block; margin-top: .4rem; padding: .2rem .4rem; background: #fff3cd;
+        border: 1px solid #d4a72c; color: #5c4400; font-size: .9rem; }}
 </style>
 <h1>Internship results</h1>
 <p role="status">{escape(message)}</p>
@@ -125,7 +142,7 @@ def results_server(root, tracker, rows):
     gone = removed.load(root)
     roles = {}
     for index, row in enumerate(rows):
-        role = {field: row.get(field) or "" for field in (*FIELDS, "url")}
+        role = {field: row.get(field) or "" for field in (*FIELDS, "url", "flags")}
         if not applied(role) and role["url"] not in gone:
             roles[str(index)] = role
     token = secrets.token_urlsafe(32)

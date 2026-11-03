@@ -34,6 +34,22 @@ alert_emails:   # source 6 (needs: pip install -e ".[gmail]" and a Google OAuth 
   token_path: auth/token.json
   max_messages: 100
 
+# After filtering, check each kept role's listing is still open. Firm job boards (Workday,
+# Greenhouse, Lever, Ashby, SmartRecruiters) are asked through their public job endpoints;
+# other links are fetched and read for a 404/410 or one of closed_phrases. Timeouts, 403,
+# 429 and 5xx count as unknown, never closed. Closed roles go to data/removed.json
+# (restore with `jobengine restore <url>`); unknown ones show as "not verified".
+link_check:
+  enabled: true
+  concurrency: 8              # listings checked at once
+  per_host_seconds: 1.0       # minimum gap between requests to the same site
+  timeout_seconds: 15
+  cache_hours: 24             # reuse answers younger than this (data/link_check.json)
+  max_unknown_age_days: 120   # drop unverified roles posted longer ago; blank dates stay
+  closed_phrases: ["no longer accepting applications", "position has been filled",
+                   "job is no longer available", "this job is no longer open",
+                   "this position is no longer available", "job posting has expired"]
+
 # Cities within roughly a 1-hour drive of the home base. Matched before any map lookup.
 # "borderline" cities are kept but flagged for you to check.
 local_area:
