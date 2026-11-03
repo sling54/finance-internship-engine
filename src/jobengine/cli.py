@@ -41,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="set up your local profile and application tracker")
+    sub.add_parser("results", help="open the latest scan results in your browser")
     scan = sub.add_parser("scan", help="collect, filter and write data/jobs_latest.csv")
     scan.add_argument(
         "--only",
@@ -84,6 +85,12 @@ def main(argv: list[str] | None = None) -> int:
             "Note: using config/profile.example.yml. Run jobengine init to set up your profile.",
             file=sys.stderr,
         )
+
+    if args.command == "results":
+        from .results import show_results
+
+        tracker = ROOT / cfg.profile.get("tracker_path", "data/ApplicationTracker.xlsx")
+        return show_results(ROOT, tracker)
 
     if args.command == "track":
         from .tracker_sync import sync
