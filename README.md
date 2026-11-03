@@ -135,6 +135,20 @@ The page is served only on your computer. Keep the terminal open while using it,
 and press Ctrl+C to stop the server. If you have no results yet, run
 `jobengine scan --no-ai`.
 
+## Removed roles
+
+Click **Closed** on the results page when a posting has closed or you've decided
+against it. The role leaves the page and is skipped by every later scan; your
+tracker is not changed. Removed roles are listed in `data/removed.json` by exact
+URL, with the company, title, reason, date, and who removed it (`user`,
+`link_check`, or `apply_agent`). Scans list them in the rejected CSV as
+`removed: <reason>`.
+
+```sh
+jobengine removed               # list removed roles and their URLs
+jobengine restore <url>         # bring one back on the next scan
+```
+
 ## Tracker that updates itself
 
 `jobengine track` reads recent job emails from Gmail and keeps the application spreadsheet
@@ -196,7 +210,8 @@ Actions runs lint and tests on Python 3.10 and 3.12 on every push.
 config/          titles.yml, firms.yml, sources.yml, scoring.yml, profile.example.yml
 src/jobengine/
   scanners/      ats.py, lists.py, boards.py, alerts.py
-  filters/       titles.py, eligibility.py, season.py, location.py, dedup.py, applied.py
+  filters/       titles.py, eligibility.py, season.py, location.py, dedup.py, applied.py, removed.py
+  removed.py     shared list of removed roles (data/removed.json)
   pipeline.py    collect -> dedupe -> filter -> AI score -> CSV
   scorer.py      LM Studio fit score, cached in data/scores.json
   zone.py        OpenRouteService drive-time zone

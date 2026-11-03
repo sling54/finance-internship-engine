@@ -265,3 +265,84 @@ def test_existing_tracker_row_hidden_with_scan_matching(tmp_path):
     for row in rows:
         assert (row["title"] in html) == (row["title"] not in dropped)
     assert dropped == ["Summer Analyst"]
+
+
+def close(port, token, role="0", track="trading", **headers):
+    conn = HTTPConnection("127.0.0.1", port, timeout=3)
+    try:
+        conn.request(
+            "POST",
+            "/closed",
+            urlencode({"role": role, "track": track, "token": token}),
+            {
+                "Origin": f"http://127.0.0.1:{port}",
+                "Content-Type": "application/x-www-form-urlencoded",
+                **headers,
+            },
+        )
+        response = conn.getresponse()
+        body = response.read().decode()
+        return response.status, response.getheader("Location"), body
+    finally:
+        conn.close()
+
+
+def test_closed_removes_role_without_touching_tracker(page):
+    from jobengine import removed
+
+    port, tracker = page
+    root = tracker.parent
+    before = tracker.read_bytes()
+    _, html = request(port)
+    assert 'action="/closed"' in html and ">Closed</button>" in html
+
+    status, location, _ = close(port, token_for(port))
+    assert (status, location) == (303, "/?track=trading")
+    _, html = request(port, path=location)
+    assert "Removed: =1+1 - &lt;script&gt;" in html and "(closed)" in html
+    assert "<td>=1+1</td>" not in html
+    assert "Removed:" not in request(port, path=location)[1]  # shown once
+
+    entry = removed.load(root)["https://example.com/apply?a=1&b=2"]
+    assert entry["reason"] == "closed" and entry["by"] == "user"
+    assert entry["company"] == "=1+1"
+    assert tracker.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "headers,bad_token",
+    [({"Host": "example.com"}, False), ({"Origin": "https://example.com"}, False), ({}, True)],
+)
+def test_closed_rejects_foreign_requests(page, headers, bad_token):
+    from jobengine import removed
+
+    port, tracker = page
+    token = "wrong" if bad_token else token_for(port)
+    assert close(port, token, **headers)[0] == 403
+    assert not removed.path(tracker.parent).exists()
+    assert "<td>=1+1</td>" in request(port)[1]
+
+
+def test_closed_role_without_link_stays_listed(page):
+    from jobengine import removed
+
+    port, tracker = page
+    status, _, html = close(port, token_for(port), role="3", track="")
+    assert status == 400 and "no link" in html and "Later Capital" in html
+    assert not removed.path(tracker.parent).exists()
+
+
+def test_closed_role_stays_hidden_after_restart(tmp_path):
+    rows = [
+        {"company": "Shut Capital", "title": "Intern", "url": "https://example.com/shut"},
+        {"company": "Open Capital", "title": "Intern", "url": "https://example.com/open"},
+    ]
+    tracker = tmp_path / "missing.xlsx"
+
+    def click_closed(port):
+        assert close(port, token_for(port), role="0", track="")[0] == 303
+
+    serve_once(tmp_path, tracker, rows, click_closed)
+    html = serve_once(tmp_path, tracker, rows, lambda port: request(port)[1])
+    assert "Shut Capital" not in html and "Open Capital" in html
+    assert not tracker.exists()

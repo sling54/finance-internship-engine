@@ -10,6 +10,7 @@ from html import escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+from . import removed
 from .filters.applied import AppliedFilter, read_tracker
 from .models import Posting, Rejected
 from .tracker_sync import TRACKER_OPEN_MESSAGE, record_application
@@ -86,7 +87,11 @@ def _page(roles, track, token, message):
             '<form method="post" action="/applied">'
             f'<input type="hidden" name="token" value="{token}">'
             f'<input type="hidden" name="track" value="{escape(track)}">'
-            f'<button name="role" value="{key}">I applied</button></form></td></tr>'
+            f'<button name="role" value="{key}">I applied</button></form>'
+            '<form method="post" action="/closed">'
+            f'<input type="hidden" name="token" value="{token}">'
+            f'<input type="hidden" name="track" value="{escape(track)}">'
+            f'<button name="role" value="{key}">Closed</button></form></td></tr>'
         )
     if not rows:
         rows.append('<tr><td colspan="8">No roles to show.</td></tr>')
@@ -117,10 +122,11 @@ def results_server(root, tracker, rows):
         )
     )
     applied = _already_applied(tracker)
+    gone = removed.load(root)
     roles = {}
     for index, row in enumerate(rows):
         role = {field: row.get(field) or "" for field in (*FIELDS, "url")}
-        if not applied(role):
+        if not applied(role) and role["url"] not in gone:
             roles[str(index)] = role
     token = secrets.token_urlsafe(32)
     # Confirmation shown on the next page view, so refreshing never resubmits the form.
@@ -161,7 +167,7 @@ def results_server(root, tracker, rows):
             if not self._valid_host() or self.headers.get_all("Origin") != [origin]:
                 self.send_error(403)
                 return
-            if self.path != "/applied":
+            if self.path not in ("/applied", "/closed"):
                 self.send_error(404)
                 return
             length = _number(self.headers.get("Content-Length"), 0)
@@ -186,16 +192,27 @@ def results_server(root, tracker, rows):
             if row is None:
                 self._render(track, "This role is no longer listed.", 404)
                 return
-            try:
-                message = record_application(
-                    tracker, root, row["company"], row["title"], _apply_url(row["url"])
-                )
-            except Exception as exc:
-                self._render(track, f"Could not update the tracker: {exc}", 500)
-                return
-            if message == TRACKER_OPEN_MESSAGE:
-                self._render(track, message, 409)
-                return
+            if self.path == "/closed":
+                if not row["url"]:
+                    self._render(track, "This role has no link, so it can't be removed.", 400)
+                    return
+                try:
+                    removed.add(root, row["url"], row["company"], row["title"], "closed", "user")
+                except Exception as exc:
+                    self._render(track, f"Could not save the removed role: {exc}", 500)
+                    return
+                message = f"Removed: {row['company']} - {row['title']} (closed)."
+            else:
+                try:
+                    message = record_application(
+                        tracker, root, row["company"], row["title"], _apply_url(row["url"])
+                    )
+                except Exception as exc:
+                    self._render(track, f"Could not update the tracker: {exc}", 500)
+                    return
+                if message == TRACKER_OPEN_MESSAGE:
+                    self._render(track, message, 409)
+                    return
             del roles[key]
             notice["message"] = message
             self.send_response(303)
