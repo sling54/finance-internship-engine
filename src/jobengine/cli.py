@@ -40,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true", help="log every source call")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    sub.add_parser("init", help="set up your local profile and application tracker")
     scan = sub.add_parser("scan", help="collect, filter and write data/jobs_latest.csv")
     scan.add_argument(
         "--only",
@@ -59,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         "applied", help="record an application you just submitted (for firms that never email)"
     )
     applied.add_argument(
-        "search", nargs="+", help="words from the role in data/jobs_latest.csv, or its URL"
+        "search", nargs="*", help="words from the role in data/jobs_latest.csv, or its URL"
     )
     applied.add_argument("--company", help="add this firm directly instead of searching")
     applied.add_argument("--role", default="", help="role title, with --company")
@@ -70,11 +71,17 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
+    if args.command == "init":
+        from .setup import initialize
+
+        return initialize(ROOT)
+    if args.command == "applied" and not (args.company or args.search):
+        applied.error("provide a search query or --company")
+
     cfg = Config.load()
     if cfg.profile_is_example:
         print(
-            "Note: using config/profile.example.yml. Copy it to config/profile.yml "
-            "and fill in your details.",
+            "Note: using config/profile.example.yml. Run jobengine init to set up your profile.",
             file=sys.stderr,
         )
 
@@ -118,6 +125,9 @@ def main(argv: list[str] | None = None) -> int:
             print("Add ORS_API_KEY=... to .env first (free key at openrouteservice.org).")
             return 1
         base = cfg.profile["home_base"]
+        if base.get("lon") is None or base.get("lat") is None:
+            print("Set campus longitude and latitude in config/profile.yml to draw the zone.")
+            return 1
         build_zone(
             key,
             base["lon"],
