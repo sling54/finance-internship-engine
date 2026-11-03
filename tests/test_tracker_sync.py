@@ -465,22 +465,42 @@ def test_review_rejection_uses_stored_status(tmp_path):
     assert load_workbook(path)["Review"].max_row == 1  # all three cleared
 
 
-@pytest.mark.parametrize("existing_row", [True, False])
-def test_sync_uses_domain_alias_for_rejection(tmp_path, existing_row):
+def test_domain_alias_matches_subdomain_labels_and_whole_words():
+    sender = "careers@mail.ntrs.com"
+    assert firm_and_role(sender, "Update") == ("Northern Trust", "")
+    assert match_company(sender, "Update", "", ["Northern Trust Wealth Management"]) == (
+        "Northern Trust Wealth Management"
+    )
+    assert match_company(sender, "Update", "", ["Northern Trustees"]) is None
+    assert (
+        match_company(
+            "careers@northerntrust.com", "Update", "", ["Northern Trust Wealth Management"]
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "existing_company", ["Northern Trust", "Northern Trust Wealth Management", None]
+)
+def test_sync_uses_domain_alias_for_rejection(tmp_path, existing_company):
     path = tmp_path / "ApplicationTracker.xlsx"
     make_tracker(path)
-    if existing_row:
+    if existing_company:
         wb = load_workbook(path)
-        wb["Applications"].append([datetime(2026, 10, 30), "Northern Trust", "Summer Intern"])
+        wb["Applications"].append(
+            [datetime(2026, 10, 30), existing_company, "Wealth Management Intern"]
+        )
         wb.save(path)
 
     gmail = FakeGmail(
         [
             email(
                 "ntrs-rejection",
-                "Recruiting <careers@ntrs.com>",
-                "Your application",
-                "We have decided to move forward with other candidates.",
+                "ntrs@myworkday.com",
+                "Your Northern Trust Application Status for role R160763 Wealth Management Intern"
+                " - All Other US Locations (Evergreen) (Open)",
+                "we will not be moving forward with your application",
                 2,
             )
         ]
@@ -490,7 +510,8 @@ def test_sync_uses_domain_alias_for_rejection(tmp_path, existing_row):
     ws = load_workbook(path)["Applications"]
     status_col = [cell.value for cell in ws[6]].index("App Status") + 1
     assert ws.max_row == 11
-    assert ws["B11"].value == "Northern Trust"
+    assert ws["B11"].value == (existing_company or "Northern Trust")
+    assert ws["C11"].value == "Wealth Management Intern"
     assert ws.cell(11, status_col).value == "Rejected"
-    assert len(report.updated) == int(existing_row)
-    assert len(report.added) == int(not existing_row)
+    assert len(report.updated) == int(existing_company is not None)
+    assert len(report.added) == int(not existing_company)

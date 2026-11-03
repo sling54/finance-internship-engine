@@ -159,19 +159,26 @@ def _domain(sender: str) -> str:
     return m.group(1).lower() if m else ""
 
 
-def _domain_alias(domain: str) -> str:
-    return load_yaml(CONFIG_DIR / "domain_aliases.yml").get(domain.split(".")[0], "")
+def _domain_alias(sender: str, domain: str) -> str:
+    aliases = load_yaml(CONFIG_DIR / "domain_aliases.yml")
+    if domain == "myworkday.com":
+        local_part = sender.rsplit("<", 1)[-1].split("@", 1)[0].strip().lower()
+        if local_part in aliases:
+            return aliases[local_part]
+    return next((aliases[label] for label in domain.split(".") if label in aliases), "")
 
 
 def match_company(sender: str, subject: str, body: str, companies: list[str]) -> str | None:
-    """The tracker company this email is about: its name in the sender or subject, its name at
-    a configured domain alias, the start of the sender's domain (veritionfund.com -> Verition), or, for applicant-tracking
-    senders only, its name in the body. Longest name wins."""
+    """Match a tracker company by sender, subject, or applicant-tracking email body.
+
+    Configured sender aliases also match the opening words of a company name.
+    Longest matching name wins.
+    """
     strong = f" {normalize(sender)} {normalize(subject)} "
     sender_domain = _domain(sender)
     weak = f" {normalize(body[:3000])} " if sender_domain.endswith(ATS_DOMAINS) else ""
     domain = sender_domain.split(".")[0]
-    alias = company_key(_domain_alias(sender_domain))
+    alias = company_key(_domain_alias(sender, sender_domain))
     best = None
     for company in companies:
         key = company_key(company)
@@ -179,7 +186,7 @@ def match_company(sender: str, subject: str, body: str, companies: list[str]) ->
             continue
         squashed = key.replace(" ", "")
         hit = (
-            key == alias
+            (alias and (key == alias or key.startswith(alias + " ")))
             or f" {key} " in strong
             or f" {key} " in weak
             or (len(squashed) >= 4 and domain.startswith(squashed))
@@ -193,6 +200,11 @@ def match_company(sender: str, subject: str, body: str, companies: list[str]) ->
 
 _END = r"(?=\s*(?:[!.,|]|\s-\s|\s–\s|\(|$| for the | for our | for your | role\b| position\b))"
 SUBJECT_PATTERNS = [
+    re.compile(
+        r"^Your (?P<company>.+?) Application Status for role [A-Z]*\d+ "
+        r"(?P<role>.+?)(?=\s+[-–]\s+|\s*\(|$)",
+        re.I,
+    ),
     # "Your application for Citadel's Trading Fundamental Analyst - Intern (US) role has been ..."
     re.compile(
         r"application for (?P<company>[\w&.' ]+?)'s (?P<role>.+?) (?:role|position)\b", re.I
@@ -224,7 +236,7 @@ _NOT_COMPANIES = {"the", "our", "your", "this", "a", "an", "us", "you", "positio
 
 def firm_and_role(sender: str, subject: str) -> tuple[str, str] | None:
     """Infer the firm from the sender or subject and read the role from the subject."""
-    alias = _domain_alias(_domain(sender))
+    alias = _domain_alias(sender, _domain(sender))
     for pattern in SUBJECT_PATTERNS:
         m = pattern.search(subject.strip())
         if not m:

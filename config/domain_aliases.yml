@@ -1,2 +1,2 @@
-# Map the first label of a sender domain to the company name used in the tracker.
+# Map sender domain labels and Workday sender usernames to tracker company names.
 ntrs: Northern Trust
