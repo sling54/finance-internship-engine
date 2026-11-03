@@ -56,31 +56,24 @@ def _merge(keep: Posting, job: Posting) -> None:
 
 
 def dedupe(jobs: list[Posting]) -> list[Posting]:
-    jobs = sorted(jobs, key=rank)
-    parents = list(range(len(jobs)))
-
-    def root(index: int) -> int:
-        while parents[index] != index:
-            parents[index] = parents[parents[index]]
-            index = parents[index]
-        return index
-
-    keys: dict[tuple[str, str], int] = {}
-    urls: dict[str, int] = {}
-    for index, job in enumerate(jobs):
-        matches = [keys.setdefault(job_key(job), index)]
-        if job.url:
-            matches.append(urls.setdefault(job.url, index))
-        for match in matches:
-            a, b = root(index), root(match)
-            parents[max(a, b)] = min(a, b)
-
-    best: dict[int, Posting] = {}
-    for index, job in enumerate(jobs):
-        group = root(index)
-        if group not in best:
+    """One row per job. A posting joins an earlier row with the same exact URL (query string
+    included), or else one with the same company and title key. Rows never merge with each
+    other, so a vague title like "Trading Intern" can't chain two different jobs together."""
+    groups: list[Posting] = []
+    by_url: dict[str, Posting] = {}
+    by_key: dict[tuple[str, str], Posting] = {}
+    for job in sorted(jobs, key=rank):  # most trusted source first, so it is the one kept
+        key = job_key(job)
+        keep = by_url.get(job.url) if job.url else None
+        if keep is None:
+            keep = by_key.get(key)
+        if keep is None:
             job.sources = [job.source]
-            best[group] = job
+            groups.append(job)
+            by_key[key] = job
+            keep = job
         else:
-            _merge(best[group], job)
-    return list(best.values())
+            _merge(keep, job)
+        if job.url:
+            by_url.setdefault(job.url, keep)
+    return groups

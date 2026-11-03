@@ -381,12 +381,45 @@ def test_empty_urls_do_not_merge_different_keys():
     assert len(dedupe([job("Trading Intern", url=""), job("Quant Intern", url="")])) == 2
 
 
-def test_dedup_bridges_key_and_url_groups():
+def test_dedup_never_chains_two_jobs_together():
     a = job("Trading Intern", source="greenhouse", url="https://example.com/a")
     b = job("Quant Intern", source="lever", url="https://example.com/b")
+    # Same title as a, same URL as b: the exact URL wins, and a and b stay separate.
     bridge = job("Trading Intern", source="simplify", url=b.url)
-    assert dedupe([a, b, bridge]) == [a]
-    assert a.sources == ["greenhouse", "lever", "simplify"]
+    assert dedupe([a, b, bridge]) == [a, b]
+    assert a.sources == ["greenhouse"]
+    assert b.sources == ["lever", "simplify"]
+
+
+def test_dedup_keeps_same_titled_roles_in_two_cities_apart():
+    # Real Brevan Howard case: Simplify titles both roles "Trading Intern", Kadoa names the
+    # city. Each Simplify row must join its own Kadoa row by URL, not merge across cities.
+    ny = "https://wd3.myworkdaysite.com/recruiting/brevanhoward/x/job/New-York/Trading_JR101583"
+    ldn = "https://wd3.myworkdaysite.com/recruiting/brevanhoward/x/job/London/Trading_JR101584"
+    rows = [
+        job("Trading Intern - Trading", "Brevan Howard", ["NYC"], "simplify", url=ny),
+        job("Trading Intern", "Brevan Howard", ["London, UK"], "simplify", url=ldn),
+        job(
+            "2027 Summer Internship Program – Trading, London",
+            "Brevan Howard",
+            ["London"],
+            "kadoa",
+            url=ldn,
+        ),
+        job(
+            "2027 Summer Internship Program – Trading, New York",
+            "Brevan Howard",
+            ["New York"],
+            "kadoa",
+            url=ny,
+        ),
+    ]
+    merged = dedupe(rows)
+    assert sorted(j.url for j in merged) == sorted([ny, ldn])
+    by_url = {j.url: j for j in merged}
+    assert by_url[ny].locations == ["New York", "NYC"]
+    assert by_url[ldn].locations == ["London", "London, UK"]
+    assert by_url[ny].sources == by_url[ldn].sources == ["kadoa", "simplify"]
 
 
 def test_job_helper_urls_are_unique_and_overridable():
