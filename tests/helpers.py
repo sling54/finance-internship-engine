@@ -2,12 +2,14 @@
 
 import json
 from datetime import date
+from itertools import count
 from pathlib import Path
 
 from jobengine.models import Posting
 
 FIXTURES = Path(__file__).parent / "fixtures"
 TODAY = date(2026, 11, 2)
+_JOB_URLS = count(1)
 
 
 def load_fixture(name: str):
@@ -19,7 +21,7 @@ def job(title="Trading Intern", company="Acme Trading", locations=None, source="
     return Posting(
         company=company,
         title=title,
-        url="https://example.com/1",
+        url=kw.pop("url", f"https://example.com/{next(_JOB_URLS)}"),
         source=source,
         locations=locations or [],
         **kw,
