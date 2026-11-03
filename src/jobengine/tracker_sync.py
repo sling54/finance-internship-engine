@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from .config import CONFIG_DIR, load_yaml
 from .filters.dedup import company_key
 from .gmail import header, plain_text, service
 from .textutil import normalize
@@ -158,13 +159,26 @@ def _domain(sender: str) -> str:
     return m.group(1).lower() if m else ""
 
 
+def _domain_alias(sender: str, domain: str) -> str:
+    aliases = load_yaml(CONFIG_DIR / "domain_aliases.yml")
+    if domain == "myworkday.com":
+        local_part = sender.rsplit("<", 1)[-1].split("@", 1)[0].strip().lower()
+        if local_part in aliases:
+            return aliases[local_part]
+    return next((aliases[label] for label in domain.split(".") if label in aliases), "")
+
+
 def match_company(sender: str, subject: str, body: str, companies: list[str]) -> str | None:
-    """The tracker company this email is about: its name in the sender or subject, its name at
-    the start of the sender's domain (veritionfund.com -> Verition), or, for applicant-tracking
-    senders only, its name in the body. Longest name wins."""
+    """Match a tracker company by sender, subject, or applicant-tracking email body.
+
+    Configured sender aliases also match the opening words of a company name.
+    Longest matching name wins.
+    """
     strong = f" {normalize(sender)} {normalize(subject)} "
-    weak = f" {normalize(body[:3000])} " if _domain(sender).endswith(ATS_DOMAINS) else ""
-    domain = _domain(sender).split(".")[0]
+    sender_domain = _domain(sender)
+    weak = f" {normalize(body[:3000])} " if sender_domain.endswith(ATS_DOMAINS) else ""
+    domain = sender_domain.split(".")[0]
+    alias = company_key(_domain_alias(sender, sender_domain))
     best = None
     for company in companies:
         key = company_key(company)
@@ -172,7 +186,8 @@ def match_company(sender: str, subject: str, body: str, companies: list[str]) ->
             continue
         squashed = key.replace(" ", "")
         hit = (
-            f" {key} " in strong
+            (alias and (key == alias or key.startswith(alias + " ")))
+            or f" {key} " in strong
             or f" {key} " in weak
             or (len(squashed) >= 4 and domain.startswith(squashed))
         )
@@ -185,6 +200,11 @@ def match_company(sender: str, subject: str, body: str, companies: list[str]) ->
 
 _END = r"(?=\s*(?:[!.,|]|\s-\s|\s–\s|\(|$| for the | for our | for your | role\b| position\b))"
 SUBJECT_PATTERNS = [
+    re.compile(
+        r"^Your (?P<company>.+?) Application Status for role [A-Z]*\d+ "
+        r"(?P<role>.+?)(?=\s+[-–]\s+|\s*\(|$)",
+        re.I,
+    ),
     # "Your application for Citadel's Trading Fundamental Analyst - Intern (US) role has been ..."
     re.compile(
         r"application for (?P<company>[\w&.' ]+?)'s (?P<role>.+?) (?:role|position)\b", re.I
@@ -215,7 +235,8 @@ _NOT_COMPANIES = {"the", "our", "your", "this", "a", "an", "us", "you", "positio
 
 
 def firm_and_role(sender: str, subject: str) -> tuple[str, str] | None:
-    """Firm and role named in an application email's subject, if it names them clearly."""
+    """Infer the firm from the sender or subject and read the role from the subject."""
+    alias = _domain_alias(sender, _domain(sender))
     for pattern in SUBJECT_PATTERNS:
         m = pattern.search(subject.strip())
         if not m:
@@ -231,7 +252,9 @@ def firm_and_role(sender: str, subject: str) -> tuple[str, str] | None:
             continue
         role = (m.groupdict().get("role") or "").strip(" -–!.")
         role = re.sub(r"\s*\((?:[^)]*,\s*)?[A-Z]{2}\)$", "", role)  # trailing "(New York, NY)"
-        return company, role
+        return alias or company, role
+    if alias:
+        return alias, ""
     # Workday sends from <firm>@myworkday.com with a bare "Thank You For Applying!"
     m = re.search(r"^\W*([a-z0-9]+)@myworkday\.com", sender.split("<")[-1], re.I)
     if m:
