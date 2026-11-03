@@ -97,9 +97,21 @@ cd finance-internship-engine
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-cp config/profile.example.yml config/profile.yml   # then edit it with your details
-jobengine scan
+jobengine init
+jobengine scan --no-ai
 ```
+
+### Set up your profile with `jobengine init`
+
+Run `jobengine init` and answer the prompts one at a time. Press Enter to
+accept the displayed default. The command saves your answers to the local,
+git-ignored `config/profile.yml` and creates a blank tracker at the chosen
+path if one is missing. It asks before replacing a profile and keeps any
+existing tracker.
+
+You can run `jobengine scan --no-ai` without Gmail credentials or LM Studio.
+After submitting an application, record it with
+`jobengine applied --company "Firm" --role "Role"`.
 
 Results land in `data/jobs_latest.csv`. Useful options:
 
