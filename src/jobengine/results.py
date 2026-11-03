@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import csv
+import re
 import secrets
 import webbrowser
 from html import escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
+from .filters.applied import AppliedFilter, read_tracker
+from .models import Posting, Rejected
 from .tracker_sync import TRACKER_OPEN_MESSAGE, record_application
 
 FIELDS = ("company", "title", "track", "season", "locations", "fit_score", "salary")
@@ -19,6 +22,32 @@ def _number(value, default):
         return int(value)
     except (ValueError, TypeError):
         return default
+
+
+def _salary(value):
+    """Format a plain number like 162500 as $162,500; leave anything else unchanged."""
+    text = value.strip()
+    if not re.fullmatch(r"\$?\d[\d,]*(\.\d+)?", text):
+        return value
+    try:
+        amount = float(text.lstrip("$").replace(",", ""))
+    except ValueError:
+        return value
+    return f"${amount:,.0f}" if amount.is_integer() else f"${amount:,.2f}"
+
+
+def _already_applied(tracker):
+    """The scan's own tracker rule, so restarting the page never shows a recorded role."""
+    applied = AppliedFilter(read_tracker(tracker))
+
+    def check(row):
+        try:
+            applied(Posting(company=row["company"], title=row["title"], url="", source="results"))
+        except Rejected:
+            return True
+        return False
+
+    return check
 
 
 def _apply_url(value):
@@ -42,7 +71,10 @@ def _page(roles, track, token, message):
     for key, row in roles.items():
         if track and row["track"] != track:
             continue
-        cells = "".join(f"<td>{escape(row[field])}</td>" for field in FIELDS)
+        cells = "".join(
+            f"<td>{escape(_salary(row[field]) if field == 'salary' else row[field])}</td>"
+            for field in FIELDS
+        )
         url = _apply_url(row["url"])
         link = (
             f'<a href="{escape(url)}" target="_blank" rel="noopener noreferrer">Apply</a>'
@@ -84,11 +116,15 @@ def results_server(root, tracker, rows):
             -_number(row.get("fit_score"), -1),
         )
     )
-    roles = {
-        str(index): {field: row.get(field) or "" for field in (*FIELDS, "url")}
-        for index, row in enumerate(rows)
-    }
+    applied = _already_applied(tracker)
+    roles = {}
+    for index, row in enumerate(rows):
+        role = {field: row.get(field) or "" for field in (*FIELDS, "url")}
+        if not applied(role):
+            roles[str(index)] = role
     token = secrets.token_urlsafe(32)
+    # Confirmation shown on the next page view, so refreshing never resubmits the form.
+    notice = {"message": ""}
 
     class Handler(BaseHTTPRequestHandler):
         def _valid_host(self):
@@ -117,7 +153,8 @@ def results_server(root, tracker, rows):
             if path != "/":
                 self.send_error(404)
                 return
-            self._render(parse_qs(query).get("track", [""])[0])
+            message, notice["message"] = notice["message"], ""
+            self._render(parse_qs(query).get("track", [""])[0], message)
 
         def do_POST(self):
             origin = f"http://127.0.0.1:{self.server.server_port}"
@@ -160,7 +197,12 @@ def results_server(root, tracker, rows):
                 self._render(track, message, 409)
                 return
             del roles[key]
-            self._render(track, message)
+            notice["message"] = message
+            self.send_response(303)
+            self.send_header("Location", "/" + ("?" + urlencode({"track": track}) if track else ""))
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
 
     # Serialize requests so that concurrent clicks can't race tracker reads and writes.
     return HTTPServer(("127.0.0.1", 0), Handler)

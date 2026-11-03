@@ -95,8 +95,9 @@ def test_results_rejects_invalid_writes_and_records_valid_application(page):
     assert apply(port, token, Origin="https://example.com")[0] == 403
     assert load_workbook(tracker).active.max_row == 1
 
-    status, html = apply(port, token)
-    assert status == 200
+    status, _ = apply(port, token)
+    assert status == 303
+    html = request(port, path="/?track=trading")[1]
     assert "No roles to show." in html
     assert "=1+1" not in request(port)[1]
     sheet = load_workbook(tracker).active
@@ -137,3 +138,130 @@ def test_results_opens_default_browser(tmp_path, monkeypatch):
 
     assert results.show_results(tmp_path, tmp_path / "ApplicationTracker.xlsx") == 0
     assert re.fullmatch(r"http://127\.0\.0\.1:\d+/", opened[0])
+
+
+def raw_post(port, token, role="0", track="trading"):
+    conn = HTTPConnection("127.0.0.1", port, timeout=3)
+    try:
+        conn.request(
+            "POST",
+            "/applied",
+            urlencode({"role": role, "track": track, "token": token}),
+            {
+                "Origin": f"http://127.0.0.1:{port}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        response = conn.getresponse()
+        response.read()
+        return response.status, response.getheader("Location")
+    finally:
+        conn.close()
+
+
+def test_applied_redirects_and_shows_message_once(page):
+    port, _ = page
+    status, location = raw_post(port, token_for(port))
+    assert status == 303 and location == "/?track=trading"
+    _, html = request(port, path=location)
+    assert "Added: =1+1" in html
+    assert "no longer listed" not in html
+    # Refreshing is a plain GET: no resubmission, and the confirmation is not repeated.
+    _, again = request(port, path=location)
+    assert "Added:" not in again and "no longer listed" not in again
+
+
+def test_applied_redirect_without_track_filter(page):
+    port, _ = page
+    assert raw_post(port, token_for(port), track="") == (303, "/")
+
+
+@pytest.mark.parametrize(
+    "value,shown",
+    [
+        ("162500", "$162,500"),
+        ("162500.0", "$162,500"),
+        ("$1,000", "$1,000"),
+        ("25.5", "$25.50"),
+        ("$30/hour", "$30/hour"),
+        ("100000-120000 yearly", "100000-120000 yearly"),
+        ("Competitive", "Competitive"),
+        ("", ""),
+    ],
+)
+def test_salary_format(value, shown):
+    assert results._salary(value) == shown
+
+
+def test_salary_shown_formatted_on_page(tmp_path):
+    rows = [{"company": "Pay Capital", "title": "Intern", "salary": "162500"}]
+    with results.results_server(tmp_path, tmp_path / "missing.xlsx", rows) as server:
+        thread = Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            html = request(server.server_port)[1]
+        finally:
+            server.shutdown()
+            thread.join()
+    assert "<td>$162,500</td>" in html and "162500" not in html
+
+
+def serve_once(root, tracker, rows, action):
+    with results.results_server(root, tracker, [dict(r) for r in rows]) as server:
+        thread = Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            return action(server.server_port)
+        finally:
+            server.shutdown()
+            thread.join()
+
+
+def test_recorded_role_stays_hidden_after_restart(tmp_path):
+    tracker = tmp_path / "ApplicationTracker.xlsx"
+    wb = Workbook()
+    wb.active.append(["Application Date", "Company", "Role Applied To"])
+    wb.save(tracker)
+    rows = [
+        {"company": "Acme Capital", "title": "Summer Analyst", "track": "research"},
+        {"company": "Other Partners", "title": "Trading Intern", "track": "trading"},
+    ]
+
+    def click_applied(port):
+        token = token_for(port)
+        assert "Acme Capital" in request(port)[1]
+        assert raw_post(port, token, role="0", track="")[0] == 303
+
+    serve_once(tmp_path, tracker, rows, click_applied)
+    assert load_workbook(tracker).active["B2"].value == "Acme Capital"
+
+    html = serve_once(tmp_path, tracker, rows, lambda port: request(port)[1])
+    assert "Acme Capital" not in html
+    assert "Other Partners" in html
+
+
+def test_existing_tracker_row_hidden_with_scan_matching(tmp_path):
+    tracker = tmp_path / "ApplicationTracker.xlsx"
+    wb = Workbook()
+    wb.active.append(["Application Date", "Company", "Role Applied To"])
+    wb.active.append(["2026-10-01", "Acme Capital LLC", "Summer Analyst"])
+    wb.save(tracker)
+    rows = [
+        {"company": "Acme Capital", "title": "Summer Analyst"},
+        {"company": "Acme Capital", "title": "Quant Researcher"},
+    ]
+    from jobengine.filters.applied import AppliedFilter, read_tracker
+    from jobengine.models import Posting, Rejected
+
+    scan = AppliedFilter(read_tracker(tracker))
+    dropped = []
+    for row in rows:
+        try:
+            scan(Posting(company=row["company"], title=row["title"], url="", source="t"))
+        except Rejected:
+            dropped.append(row["title"])
+
+    html = serve_once(tmp_path, tracker, rows, lambda port: request(port)[1])
+    for row in rows:
+        assert (row["title"] in html) == (row["title"] not in dropped)
+    assert dropped == ["Summer Analyst"]
