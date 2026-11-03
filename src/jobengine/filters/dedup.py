@@ -40,25 +40,47 @@ def rank(job: Posting) -> int:
     return SOURCE_RANK.get(job.source, 3)
 
 
+def _merge(keep: Posting, job: Posting) -> None:
+    if job.source not in keep.sources:
+        keep.sources.append(job.source)
+    for place in job.locations:
+        if place not in keep.locations:
+            keep.locations.append(place)
+    for attr in ("description", "date_posted", "salary"):
+        if not getattr(keep, attr) and getattr(job, attr):
+            setattr(keep, attr, getattr(job, attr))
+    keep.terms = keep.terms or job.terms
+    keep.degrees = keep.degrees or job.degrees
+    if keep.is_internship is None:
+        keep.is_internship = job.is_internship
+
+
 def dedupe(jobs: list[Posting]) -> list[Posting]:
-    best: dict[tuple[str, str], Posting] = {}
-    for job in sorted(jobs, key=rank):
-        key = job_key(job)
-        if key not in best:
+    jobs = sorted(jobs, key=rank)
+    parents = list(range(len(jobs)))
+
+    def root(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    keys: dict[tuple[str, str], int] = {}
+    urls: dict[str, int] = {}
+    for index, job in enumerate(jobs):
+        matches = [keys.setdefault(job_key(job), index)]
+        if job.url:
+            matches.append(urls.setdefault(job.url, index))
+        for match in matches:
+            a, b = root(index), root(match)
+            parents[max(a, b)] = min(a, b)
+
+    best: dict[int, Posting] = {}
+    for index, job in enumerate(jobs):
+        group = root(index)
+        if group not in best:
             job.sources = [job.source]
-            best[key] = job
-            continue
-        keep = best[key]
-        if job.source not in keep.sources:
-            keep.sources.append(job.source)
-        for place in job.locations:
-            if place not in keep.locations:
-                keep.locations.append(place)
-        for attr in ("description", "date_posted", "salary"):
-            if not getattr(keep, attr) and getattr(job, attr):
-                setattr(keep, attr, getattr(job, attr))
-        keep.terms = keep.terms or job.terms
-        keep.degrees = keep.degrees or job.degrees
-        if keep.is_internship is None:
-            keep.is_internship = job.is_internship
+            best[group] = job
+        else:
+            _merge(best[group], job)
     return list(best.values())
