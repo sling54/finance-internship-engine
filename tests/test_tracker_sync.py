@@ -463,3 +463,34 @@ def test_review_rejection_uses_stored_status(tmp_path):
     assert app_status(path, 11)[1:] == ["Quantitative Trading Intern - Summer 2027", "Rejected"]
     assert app_status(path, 12)[2] == "Confirmed"  # the Winter Quarter role is untouched
     assert load_workbook(path)["Review"].max_row == 1  # all three cleared
+
+
+@pytest.mark.parametrize("existing_row", [True, False])
+def test_sync_uses_domain_alias_for_rejection(tmp_path, existing_row):
+    path = tmp_path / "ApplicationTracker.xlsx"
+    make_tracker(path)
+    if existing_row:
+        wb = load_workbook(path)
+        wb["Applications"].append([datetime(2026, 10, 30), "Northern Trust", "Summer Intern"])
+        wb.save(path)
+
+    gmail = FakeGmail(
+        [
+            email(
+                "ntrs-rejection",
+                "Recruiting <careers@ntrs.com>",
+                "Your application",
+                "We have decided to move forward with other candidates.",
+                2,
+            )
+        ]
+    )
+    report = sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=gmail, pause=0)
+
+    ws = load_workbook(path)["Applications"]
+    status_col = [cell.value for cell in ws[6]].index("App Status") + 1
+    assert ws.max_row == 11
+    assert ws["B11"].value == "Northern Trust"
+    assert ws.cell(11, status_col).value == "Rejected"
+    assert len(report.updated) == int(existing_row)
+    assert len(report.added) == int(not existing_row)
