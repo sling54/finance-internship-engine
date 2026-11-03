@@ -63,6 +63,26 @@ def test_greenhouse(url):
     assert closed.status == CLOSED and "Greenhouse" in closed.detail
 
 
+EMBED = "https://boards.greenhouse.io/embed/job_app?token=8570661002"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.gsacapital.com/careers/gh/?gh_jid=8570661002",
+        "https://www.hudsonrivertrading.com/careers/job/?gh_jid=8570661002",
+        EMBED,
+    ],
+)
+def test_greenhouse_job_on_a_firm_site_is_checked_by_id(url):
+    # Real GSA case: the firm's page was a 404 while the Greenhouse job was open.
+    answers = {url: Resp(404), EMBED: Resp(200, url=EMBED + "&for=gsacapital")}
+    found = status(url, answers)
+    assert found.status == OPEN and found.detail == "listed on Greenhouse"
+    assert status(url, {url: Resp(200), EMBED: Resp(404)}).status == CLOSED
+    assert status(url, {url: Resp(200), EMBED: Resp(403)}).status == UNKNOWN
+
+
 def test_greenhouse_eu_board_uses_the_same_api():
     url = "https://job-boards.eu.greenhouse.io/imc/jobs/4842595101"
     assert status(url, {GH_API: Resp(200, data={})}).status == OPEN
@@ -175,9 +195,8 @@ def test_redirect_to_another_job_page_is_open():
 
 
 def test_redirect_that_keeps_the_job_id_in_the_query_is_open():
-    # Greenhouse embed links redirect to the same job with the board name added.
-    url = "https://boards.greenhouse.io/embed/job_app?token=8300829"
-    final = "https://job-boards.greenhouse.io/embed/job_app?for=fanduel&token=8300829"
+    url = "https://careers.example.com/job?id=8300829"
+    final = "https://careers.example.com/en/job?for=fanduel&id=8300829"
     assert status(url, {url: Resp(200, url=final, history=[Resp(301)])}).status == OPEN
 
 

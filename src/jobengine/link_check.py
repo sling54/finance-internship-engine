@@ -122,18 +122,30 @@ def _json(resp):
         return None
 
 
+GREENHOUSE_HOSTS = (
+    "boards.greenhouse.io",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",
+)
+
+
 def check_greenhouse(url, get):
     parts = urlsplit(url)
-    if parts.hostname not in (
-        "boards.greenhouse.io",
-        "job-boards.greenhouse.io",
-        "job-boards.eu.greenhouse.io",
-    ):
-        return None
+    query = parse_qs(parts.query)
     seg = _segments(url)
-    if len(seg) < 3 or seg[1] != "jobs" or not seg[2].isdigit():
-        return None  # embed links name no board; the page check handles them
-    resp = get(f"https://boards-api.greenhouse.io/v1/boards/{seg[0]}/jobs/{seg[2]}")
+    if parts.hostname in GREENHOUSE_HOSTS and len(seg) >= 3 and seg[1] == "jobs":
+        if seg[2].isdigit():
+            resp = get(f"https://boards-api.greenhouse.io/v1/boards/{seg[0]}/jobs/{seg[2]}")
+            return _api_status(resp, "Greenhouse") or Check(OPEN, "listed on Greenhouse")
+    # Firms that show Greenhouse jobs on their own site link with ?gh_jid=<id>, and those
+    # pages can break while the job stays open. Greenhouse's embed page needs only the id:
+    # an open job loads (after a redirect naming the board), a closed one is a 404.
+    job_id = query.get("gh_jid", [""])[0]
+    if parts.hostname in GREENHOUSE_HOSTS and seg == ["embed", "job_app"]:
+        job_id = query.get("token", [""])[0]
+    if not job_id.isdigit():
+        return None
+    resp = get(f"https://boards.greenhouse.io/embed/job_app?token={job_id}")
     return _api_status(resp, "Greenhouse") or Check(OPEN, "listed on Greenhouse")
 
 
