@@ -346,3 +346,33 @@ def test_closed_role_stays_hidden_after_restart(tmp_path):
     html = serve_once(tmp_path, tracker, rows, lambda port: request(port)[1])
     assert "Shut Capital" not in html and "Open Capital" in html
     assert not tracker.exists()
+
+
+def test_unverified_and_redirecting_roles_show_a_note(tmp_path):
+    rows = [
+        {"company": "Checked Capital", "title": "Intern", "flags": "new"},
+        {"company": "Unsure Capital", "title": "Intern", "flags": "new; not verified"},
+        {
+            "company": "Moved Capital",
+            "title": "Intern",
+            "flags": "not verified; redirects to careers page",
+        },
+    ]
+    html = serve_once(tmp_path, tmp_path / "missing.xlsx", rows, lambda port: request(port)[1])
+    cells = {
+        name: html.split(name, 1)[1].split("</tr>", 1)[0] for name in ("Checked", "Unsure", "Moved")
+    }
+    assert "Not verified" not in cells["Checked"] and 'class="note"' not in cells["Checked"]
+    assert 'class="note">Not verified:' in cells["Unsure"]
+    assert "careers home page" not in cells["Unsure"]
+    assert "Not verified" in cells["Moved"] and "careers home page" in cells["Moved"]
+
+
+def test_results_page_loads_with_damaged_removed_file(tmp_path, caplog):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "removed.json").write_text("{broken")
+    rows = [{"company": "Still Capital", "title": "Intern", "url": "https://example.com/a"}]
+    html = serve_once(tmp_path, tmp_path / "missing.xlsx", rows, lambda port: request(port)[1])
+    assert "Still Capital" in html
+    assert list((tmp_path / "data").glob("removed.json.unreadable-*"))
+    assert "can't be read" in caplog.text
