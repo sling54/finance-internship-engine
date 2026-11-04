@@ -468,3 +468,107 @@ def test_cache_file_is_json(tmp_path):
     link_check.check_all([PAGE], SETTINGS, tmp_path, fake({PAGE: Resp(200)}))
     data = json.loads((tmp_path / "data" / "link_check.json").read_text())
     assert data[PAGE]["status"] == OPEN and data[PAGE]["checked"]
+
+
+# ---------- a failed or unclear check is never closed ----------
+
+
+def test_404_after_a_redirect_is_unknown():
+    # Real GSA case: the firm's page redirected (dropping a slash) and then 404'd.
+    final = "https://www.gsacapital.com/careers/gh?gh_jid=1"
+    found = status(PAGE, {PAGE: Resp(404, url=final, history=[Resp(301)])})
+    assert found.status == UNKNOWN and "after a redirect" in found.detail
+
+
+def test_phrase_after_a_redirect_is_unknown():
+    final = "https://careers.example.com/jobs/99999-other-role"
+    page = Resp(200, url=final, text="No longer accepting applications", history=[Resp(302)])
+    assert status(PAGE, {PAGE: page}).status == UNKNOWN
+
+
+def test_phrase_only_in_scripts_or_styles_is_ignored():
+    page = (
+        "<script>var msg = 'No longer accepting applications';</script>"
+        "<style>.x:after{content:'position has been filled'}</style><p>Apply now</p>"
+    )
+    assert status(PAGE, {PAGE: Resp(200, text=page)}).status == OPEN
+
+
+def test_board_api_redirect_is_unknown():
+    assert status(GH, {GH_API: Resp(404, history=[Resp(301)])}).status == UNKNOWN
+
+
+FAILURES = [Resp(code) for code in range(100, 600) if code not in (200, 404, 410)] + [
+    TimeoutError(),
+    ConnectionError(),
+    OSError(),
+    ValueError(),
+    RuntimeError(),
+]
+
+
+@pytest.mark.parametrize(
+    "answer", FAILURES, ids=lambda a: getattr(a, "status_code", None) or type(a).__name__
+)
+def test_no_failure_of_any_kind_counts_as_closed(answer):
+    workday = "https://acme.wd1.myworkdayjobs.com/Site/job/NY/Intern_R-1"
+    workday_api = "https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/Site/job/NY/Intern_R-1"
+    ashby = "https://jobs.ashbyhq.com/acme/abc"
+    ashby_api = "https://api.ashbyhq.com/posting-api/job-board/acme"
+    for url, endpoint in [(PAGE, PAGE), (GH, GH_API), (workday, workday_api), (ashby, ashby_api)]:
+        assert status(url, {endpoint: answer}).status != CLOSED, (url, answer)
+
+
+CLOSED_CASES = [
+    (PAGE, {PAGE: Resp(404)}),
+    (PAGE, {PAGE: Resp(410)}),
+    (PAGE, {PAGE: Resp(200, text="<p>Position has been filled</p>")}),
+    (GH, {GH_API: Resp(404)}),
+    (
+        "https://jobs.ashbyhq.com/acme/abc",
+        {"https://api.ashbyhq.com/posting-api/job-board/acme": Resp(200, data={"jobs": []})},
+    ),
+    (
+        "https://acme.wd1.myworkdayjobs.com/Site/job/NY/Intern_R-1",
+        {
+            "https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/Site/job/NY/Intern_R-1": Resp(
+                200, data={"jobPostingInfo": {"canApply": False}}
+            )
+        },
+    ),
+    (
+        "https://jobs.smartrecruiters.com/Acme/123-x",
+        {
+            "https://api.smartrecruiters.com/v1/companies/Acme/postings/123": Resp(
+                200, data={"active": False}
+            )
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize("url,answers", CLOSED_CASES)
+def test_every_closed_answer_carries_evidence(url, answers):
+    found = status(url, answers)
+    assert found.status == CLOSED and found.evidence
+
+
+def test_closed_without_evidence_is_never_removed(tmp_path, monkeypatch):
+    role = job("Guess Intern", "https://x.example.com/jobs/1")
+    monkeypatch.setattr(
+        link_check, "check_all", lambda *a, **k: {role.url: link_check.Check(CLOSED, "guess")}
+    )
+    result = _result(role)
+    report = link_check.apply(result, SETTINGS, tmp_path, get=None)
+    assert report.closed == 0 and report.unknown == 1
+    assert result.kept == [role] and not removed.load(tmp_path)
+
+
+def test_cached_closed_without_evidence_is_checked_again(tmp_path):
+    (tmp_path / "data").mkdir()
+    now = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
+    old = {PAGE: {"status": CLOSED, "detail": "HTTP 404", "checked": now.isoformat()}}
+    (tmp_path / "data" / "link_check.json").write_text(json.dumps(old))
+    get = fake({PAGE: Resp(200, text="ok")})
+    assert link_check.check_all([PAGE], SETTINGS, tmp_path, get, now)[PAGE].status == OPEN
+    assert get.calls == [PAGE]

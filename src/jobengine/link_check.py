@@ -61,6 +61,7 @@ class Check:
     status: str
     detail: str = ""
     flag: str = ""
+    evidence: str = ""  # for closed: the URL that answered and how, so it can be audited
 
 
 # ---------- fetching ----------
@@ -108,8 +109,10 @@ def _segments(url: str) -> list[str]:
 def _api_status(resp, name: str) -> Check | None:
     """Closed on 404/410, unknown on anything but 200, None (look closer) on 200."""
     code = resp.status_code
+    if resp.history:  # the endpoint sent us elsewhere: not a clear answer about this job
+        return Check(UNKNOWN, f"HTTP {code} from {name} after a redirect")
     if code in (404, 410):
-        return Check(CLOSED, f"HTTP {code} from {name}")
+        return Check(CLOSED, f"HTTP {code} from {name}", evidence=f"HTTP {code} {resp.url}")
     if code != 200:
         return Check(UNKNOWN, f"HTTP {code} from {name}")
     return None
@@ -172,7 +175,8 @@ def check_ashby(url, get, boards: dict | None = None):
         return Check(UNKNOWN, "unexpected answer from Ashby")
     if any(job.get("id") == job_id for job in data["jobs"]):
         return Check(OPEN, "listed on Ashby")
-    return Check(CLOSED, f"not on {org}'s Ashby job board")
+    evidence = f"HTTP 200 {resp.url}: {len(data['jobs'])} jobs, none with id {job_id}"
+    return Check(CLOSED, f"not on {org}'s Ashby job board", evidence=evidence)
 
 
 _LOCALE = re.compile(r"^[a-z]{2}-[A-Z]{2}$")
@@ -202,7 +206,9 @@ def check_workday(url, get):
     if not isinstance(info, dict):
         return Check(UNKNOWN, "unexpected answer from Workday")
     if info.get("canApply") is False:
-        return Check(CLOSED, "Workday says applications are closed")
+        return Check(
+            CLOSED, "Workday says applications are closed", evidence=f"canApply false {resp.url}"
+        )
     return Check(OPEN, "listed on Workday")
 
 
@@ -218,11 +224,20 @@ def check_smartrecruiters(url, get):
     if found:
         return found
     if (_json(resp) or {}).get("active") is False:
-        return Check(CLOSED, "SmartRecruiters says the posting is inactive")
+        return Check(
+            CLOSED,
+            "SmartRecruiters says the posting is inactive",
+            evidence=f"active false {resp.url}",
+        )
     return Check(OPEN, "listed on SmartRecruiters")
 
 
 _TAG = re.compile(r"<[^>]+>")
+_HIDDEN = re.compile(r"<(script|style|noscript|template)\b.*?</\1\s*>", re.I | re.S)
+
+
+def visible_text(page: str) -> str:
+    return " ".join(_TAG.sub(" ", _HIDDEN.sub(" ", page)).lower().split())
 
 
 def careers_home(original: str, final: str) -> bool:
@@ -237,18 +252,26 @@ def careers_home(original: str, final: str) -> bool:
 
 
 def check_page(url, get, phrases):
+    """A plain page is closed only on an unambiguous answer from the link itself: a 404 or
+    410 with no redirect, or a closed phrase in the visible text of a page served without a
+    redirect. Anything else that isn't a clean 200 is unknown."""
     resp = get(url)
     code = resp.status_code
+    redirected = bool(resp.history)
     if code in (404, 410):
-        return Check(CLOSED, f"HTTP {code}")
+        if redirected:  # e.g. a firm site that moved its job pages: proves nothing
+            return Check(UNKNOWN, f"HTTP {code} after a redirect")
+        return Check(CLOSED, f"HTTP {code}", evidence=f"HTTP {code} {url}")
     if code != 200:
         return Check(UNKNOWN, f"HTTP {code}")
-    if resp.history and careers_home(url, resp.url):
+    if redirected and careers_home(url, resp.url):
         return Check(UNKNOWN, "redirected to a careers home page", CAREERS_REDIRECT)
-    text = " ".join(_TAG.sub(" ", resp.text).lower().split())
+    text = visible_text(resp.text)
     for phrase in phrases:
         if phrase.lower() in text:
-            return Check(CLOSED, f'page says "{phrase}"')
+            if redirected:
+                return Check(UNKNOWN, f'page says "{phrase}" after a redirect')
+            return Check(CLOSED, f'page says "{phrase}"', evidence=f'HTTP 200 {url}: "{phrase}"')
     return Check(OPEN, "page loads")
 
 
@@ -314,8 +337,12 @@ def check_all(urls, cfg: dict, root: Path, get=None, now: datetime | None = None
             fresh = hit and datetime.fromisoformat(hit["checked"]) > fresh_after
         except (KeyError, TypeError, ValueError):
             fresh = False
+        if fresh and hit["status"] == CLOSED and not hit.get("evidence"):
+            fresh = False  # a closed answer without evidence is never reused
         if fresh:
-            results[url] = Check(hit["status"], hit.get("detail", ""), hit.get("flag", ""))
+            results[url] = Check(
+                hit["status"], hit.get("detail", ""), hit.get("flag", ""), hit.get("evidence", "")
+            )
         else:
             todo.append(url)
 
@@ -336,6 +363,7 @@ def check_all(urls, cfg: dict, root: Path, get=None, now: datetime | None = None
                 "status": found.status,
                 "detail": found.detail,
                 "flag": found.flag,
+                "evidence": found.evidence,
                 "checked": now.isoformat(),
             }
     if todo:
@@ -380,6 +408,8 @@ def apply(result, cfg: dict, root: Path, get=None, today: date | None = None) ->
     kept = []
     for job in result.kept:
         found = checks.get(job.url) or Check(UNKNOWN, "not checked")
+        if found.status == CLOSED and not found.evidence:
+            found = Check(UNKNOWN, f"{found.detail} (no evidence)")  # never remove on a guess
         if found.status == CLOSED:
             report.closed += 1
             reason = f"listing closed ({found.detail})"
