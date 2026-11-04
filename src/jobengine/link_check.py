@@ -132,7 +132,7 @@ GREENHOUSE_HOSTS = (
 )
 
 
-def check_greenhouse(url, get):
+def check_greenhouse(url, get, board: str = ""):
     parts = urlsplit(url)
     query = parse_qs(parts.query)
     seg = _segments(url)
@@ -141,15 +141,21 @@ def check_greenhouse(url, get):
             resp = get(f"https://boards-api.greenhouse.io/v1/boards/{seg[0]}/jobs/{seg[2]}")
             return _api_status(resp, "Greenhouse") or Check(OPEN, "listed on Greenhouse")
     # Firms that show Greenhouse jobs on their own site link with ?gh_jid=<id>, and those
-    # pages can break while the job stays open. Greenhouse's embed page needs only the id:
-    # an open job loads (after a redirect naming the board), a closed one is a 404.
+    # pages can break while the job stays open (a real GSA case), so the page is not asked.
     job_id = query.get("gh_jid", [""])[0]
     if parts.hostname in GREENHOUSE_HOSTS and seg == ["embed", "job_app"]:
         job_id = query.get("token", [""])[0]
     if not job_id.isdigit():
         return None
+    if board:  # the board the scan found the job on: its job API is a clear answer
+        resp = get(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{job_id}")
+        return _api_status(resp, "Greenhouse") or Check(OPEN, "listed on Greenhouse")
+    # Without the board, only the embed page is left. It loads for an open job, but firms
+    # can turn embedding off (Jane Street does), so its 404 proves nothing.
     resp = get(f"https://boards.greenhouse.io/embed/job_app?token={job_id}")
-    return _api_status(resp, "Greenhouse") or Check(OPEN, "listed on Greenhouse")
+    if resp.status_code == 200:
+        return Check(OPEN, "listed on Greenhouse")
+    return Check(UNKNOWN, f"Greenhouse embed page answered HTTP {resp.status_code}")
 
 
 def check_lever(url, get):
@@ -278,13 +284,16 @@ def check_page(url, get, phrases):
 BOARDS = (check_workday, check_greenhouse, check_lever, check_ashby, check_smartrecruiters)
 
 
-def check_url(url: str, get, phrases) -> Check:
+def check_url(url: str, get, phrases, greenhouse_board: str = "") -> Check:
     """One role's status. Never raises: any failure is unknown."""
     if not url or urlsplit(url).scheme not in ("http", "https"):
         return Check(UNKNOWN, "no usable link")
     try:
         for board in BOARDS:
-            found = board(url, get)
+            if board is check_greenhouse:
+                found = board(url, get, greenhouse_board)
+            else:
+                found = board(url, get)
             if found:
                 return found
         return check_page(url, get, phrases)
@@ -324,8 +333,12 @@ def save_cache(root: Path, cache: dict) -> None:
         raise
 
 
-def check_all(urls, cfg: dict, root: Path, get=None, now: datetime | None = None):
-    """Status for every URL, using cached answers younger than cache_hours."""
+def check_all(
+    urls, cfg: dict, root: Path, get=None, now: datetime | None = None, boards: dict | None = None
+):
+    """Status for every URL, using cached answers younger than cache_hours. `boards` maps a
+    URL to the Greenhouse board the scan found it on, when known."""
+    boards = boards or {}
     now = now or datetime.now(timezone.utc)
     cache = load_cache(root)
     fresh_after = now - timedelta(hours=cfg["cache_hours"])
@@ -356,7 +369,7 @@ def check_all(urls, cfg: dict, root: Path, get=None, now: datetime | None = None
     phrases = cfg["closed_phrases"]
     with ThreadPoolExecutor(max_workers=max(1, int(cfg["concurrency"]))) as pool:
         # Workers only fetch; results come back here and are written by this one thread.
-        checked = pool.map(lambda u: check_url(u, paced_get, phrases), todo)
+        checked = pool.map(lambda u: check_url(u, paced_get, phrases, boards.get(u, "")), todo)
         for url, found in zip(todo, checked, strict=True):
             results[url] = found
             cache[url] = {
@@ -403,7 +416,12 @@ def apply(result, cfg: dict, root: Path, get=None, today: date | None = None) ->
     """Check result.kept; move closed and too-old unknown roles to result.rejected."""
     start = time.monotonic()
     today = today or date.today()
-    checks = check_all([job.url for job in result.kept], cfg, root, get)
+    boards = {
+        job.url: job.extra["greenhouse_board"]
+        for job in result.kept
+        if job.extra.get("greenhouse_board")
+    }
+    checks = check_all([job.url for job in result.kept], cfg, root, get, boards=boards)
     report = Report()
     kept = []
     for job in result.kept:

@@ -64,23 +64,49 @@ def test_greenhouse(url):
 
 
 EMBED = "https://boards.greenhouse.io/embed/job_app?token=8570661002"
+GSA_API = "https://boards-api.greenhouse.io/v1/boards/gsacapital/jobs/8570661002"
+FIRM_LINKS = [
+    "https://www.gsacapital.com/careers/gh/?gh_jid=8570661002",
+    "https://www.janestreet.com/join-jane-street/apply/8570661002?gh_jid=8570661002",
+]
 
 
-@pytest.mark.parametrize(
-    "url",
-    [
-        "https://www.gsacapital.com/careers/gh/?gh_jid=8570661002",
-        "https://www.hudsonrivertrading.com/careers/job/?gh_jid=8570661002",
-        EMBED,
-    ],
-)
-def test_greenhouse_job_on_a_firm_site_is_checked_by_id(url):
+@pytest.mark.parametrize("url", FIRM_LINKS)
+def test_firm_site_greenhouse_link_uses_the_known_board(url):
     # Real GSA case: the firm's page was a 404 while the Greenhouse job was open.
-    answers = {url: Resp(404), EMBED: Resp(200, url=EMBED + "&for=gsacapital")}
-    found = status(url, answers)
-    assert found.status == OPEN and found.detail == "listed on Greenhouse"
-    assert status(url, {url: Resp(200), EMBED: Resp(404)}).status == CLOSED
-    assert status(url, {url: Resp(200), EMBED: Resp(403)}).status == UNKNOWN
+    def check(answers):
+        return check_url(url, fake({url: Resp(404), **answers}), PHRASES, "gsacapital")
+
+    assert check({GSA_API: Resp(200, data={})}).status == OPEN
+    closed = check({GSA_API: Resp(404)})
+    assert closed.status == CLOSED and closed.evidence == f"HTTP 404 {GSA_API}"
+    assert check({GSA_API: Resp(503)}).status == UNKNOWN
+
+
+@pytest.mark.parametrize("url", [*FIRM_LINKS, EMBED])
+def test_greenhouse_embed_404_is_not_proof(url):
+    # Real Jane Street case: open jobs whose embed page is a 404 (embedding turned off).
+    assert status(url, {url: Resp(404), EMBED: Resp(200, url=EMBED + "&for=x")}).status == OPEN
+    found = status(url, {url: Resp(404), EMBED: Resp(404)})
+    assert found.status == UNKNOWN and "embed" in found.detail
+
+
+def test_scanner_board_reaches_the_check(tmp_path):
+    role = job("Firm Intern", FIRM_LINKS[1])
+    role.extra["greenhouse_board"] = "gsacapital"
+    get = fake({GSA_API: Resp(200, data={})})
+    report = link_check.apply(_result(role), SETTINGS, tmp_path, get)
+    assert report.open == 1 and get.calls == [GSA_API]
+
+
+def test_greenhouse_scanner_records_the_board(monkeypatch):
+    from jobengine.scanners import ats
+
+    data = {"jobs": [{"title": "Intern", "absolute_url": FIRM_LINKS[1], "location": {}}]}
+    monkeypatch.setattr(ats, "get_json", lambda *a, **k: data)
+    monkeypatch.setattr(ats, "session", lambda: None)
+    (found,) = ats.scan({"greenhouse": {"Jane Street": "janestreet"}})
+    assert found.extra["greenhouse_board"] == "janestreet"
 
 
 def test_greenhouse_eu_board_uses_the_same_api():
