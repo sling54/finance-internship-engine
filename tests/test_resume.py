@@ -45,7 +45,26 @@ def test_rules_read_the_example_resume():
         "gpa": 3.5,
         "graduation": "2027-12",
         "work_authorization": "us_citizen",
+        "email": "alex@example.com",
+        "phone": "(555) 010-0100",
     }
+
+
+def test_rules_read_contact_details():
+    found = guess_from_resume("Alex Example\nlinkedin.com/in/alex-example | 555.010.0100")
+    assert found["linkedin"] == "https://linkedin.com/in/alex-example"
+    assert found["phone"] == "555.010.0100"
+    assert clean({"email": "not an email", "phone": "12345", "linkedin": "x.com/alex"}) == {}
+
+
+def test_init_saves_contact_details_from_the_resume(project, monkeypatch):  # noqa: F811
+    resume = write_resume(project)
+    no_model(monkeypatch)
+    answer_prompts(monkeypatch)
+    assert cli.main(["init", "--resume", str(resume)]) == 0
+    profile = load_yaml(project / "config/profile.yml")
+    assert (profile["email"], profile["phone"]) == ("alex@example.com", "(555) 010-0100")
+    assert "linkedin" not in profile  # not on the resume and left blank: not saved
 
 
 @pytest.mark.parametrize(

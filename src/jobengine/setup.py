@@ -84,6 +84,10 @@ def _profile(example, found=None, resume_path=""):
     profile["resume_path"] = str(
         Path(_ask("Resume PDF path", resume_path or example["resume_path"])).expanduser()
     )
+    for key, label in (("email", "Email"), ("phone", "Phone"), ("linkedin", "LinkedIn URL")):
+        value = _ask(f"{label} (for application forms)", found.get(key, ""))
+        if value:
+            profile[key] = value
     wants = _ask(
         "What internships do you want? Describe them in plain English for the AI fit score "
         "(Enter keeps config/scoring.yml)"
