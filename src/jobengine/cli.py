@@ -67,6 +67,12 @@ def main(argv: list[str] | None = None) -> int:
     applied.add_argument("--role", default="", help="role title, with --company")
     sub.add_parser("zone", help="draw the drive-time zone with OpenRouteService (one API call)")
     sub.add_parser("removed", help="list roles you or the engine removed")
+    outreach = sub.add_parser("outreach", help="cold outreach: contacts and Gmail drafts")
+    steps = outreach.add_subparsers(dest="outreach_command", required=True)
+    plan = steps.add_parser("plan", help="find contacts for recent applications and draft emails")
+    plan.add_argument(
+        "--dry-run", action="store_true", help="show the drafts it would write; write nothing"
+    )
     restore = sub.add_parser("restore", help="bring back a removed role")
     restore.add_argument("url", help="the role's exact URL, as shown by jobengine removed")
 
@@ -109,6 +115,11 @@ def main(argv: list[str] | None = None) -> int:
             "Note: using config/profile.example.yml. Run jobengine init to set up your profile.",
             file=sys.stderr,
         )
+
+    if args.command == "outreach":
+        from .outreach.cli import run_plan
+
+        return run_plan(cfg, ROOT, args.dry_run)
 
     if args.command == "results":
         from .results import show_results
