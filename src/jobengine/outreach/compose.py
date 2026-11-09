@@ -64,15 +64,21 @@ About me:
 /no_think"""
 
 
-def check_hook(text: str, company: str, inputs: str, other_companies: list[str]) -> str | None:
-    """The cleaned-up hook, or None if it breaks a rule."""
+def check_hook(
+    text: str,
+    company: str,
+    inputs: str,
+    other_companies: list[str],
+    max_words: int = MAX_HOOK_WORDS,
+) -> str | None:
+    """The cleaned-up hook (or longer AI answer), or None if it breaks a rule."""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).split("</think>")[-1]
     text = " ".join(text.split()).strip().strip("\"'").strip()
     if not text or "{" in text or "}" in text:
         return None
     if re.search(r"https?://|www\.|\.com\b|@", text, re.I):
         return None
-    if len(text.split()) > MAX_HOOK_WORDS:
+    if len(text.split()) > max_words:
         return None
     known = set(re.findall(r"\d+(?:\.\d+)?", inputs))
     if any(n not in known for n in re.findall(r"\d+(?:\.\d+)?", text)):

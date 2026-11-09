@@ -14,6 +14,11 @@ grad_window:
   end: 2028-06
 work_authorization: us_citizen   # us_citizen | permanent_resident | needs_sponsorship
 
+# Contact details for application forms (jobengine packet).
+email: alex@example.com
+phone: "(555) 010-0100"
+linkedin: https://www.linkedin.com/in/alex-example
+
 # Fall, spring and part-time roles must be within this drive time of campus (or remote).
 home_base:
   name: Example campus

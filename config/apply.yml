@@ -1,0 +1,21 @@
+# Application packets (jobengine packet). Answers come from config/profile.yml; the local AI
+# drafts only the open questions ("Why us?"), and you edit them before submitting.
+# Override any of this in config/apply.local.yml.
+
+# Used when the job board doesn't say what it asks (anything but Greenhouse).
+default_questions:
+  - Why are you interested in this role?
+  - Why do you want to work at this firm?
+
+# Fixed answers for common form questions. Matched against the question's label.
+how_did_you_hear: Company website
+# EEO questions (gender, race, veteran, disability) are answered with the first option
+# containing one of these phrases, or left for you if there's none.
+decline_phrases: ["decline", "prefer not", "don't wish", "do not wish", "not to answer"]
+
+# Open-question drafts from the local model.
+max_answer_words: 150
+
+# Browser form filling (jobengine packet --fill): a Chromium window that keeps its sign-ins
+# in data/browser-profile, fills what it can, and never clicks Submit.
+browser_profile: data/browser-profile

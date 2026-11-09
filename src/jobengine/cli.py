@@ -78,6 +78,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     steps.add_parser("review", help="approve or skip each draft on a local page")
     steps.add_parser("send", help="send approved drafts (at most 20 in any 24 hours)")
+    packet = sub.add_parser(
+        "packet", help="answers for one role's application, and fill the form (you submit)"
+    )
+    packet.add_argument("search", nargs="*", help="words from the role in data/jobs_latest.csv")
+    packet.add_argument("--url", help="the job's link, if it isn't in the latest scan")
+    packet.add_argument("--company", help="firm name, with --url")
+    packet.add_argument("--role", help="role title, with --url")
+    packet.add_argument(
+        "--fill", action="store_true", help="open the form in a browser and fill it in"
+    )
     sub.add_parser("doctor", help="check your setup and say what to fix")
     stats = sub.add_parser("stats", help="scans, applications, response rate and outreach")
     stats.add_argument("--markdown", action="store_true", help="print a table for a README")
@@ -133,10 +143,16 @@ def main(argv: list[str] | None = None) -> int:
             return outreach.run_send(cfg, ROOT)
         return outreach.run_plan(cfg, ROOT, args.dry_run)
 
+    if args.command == "packet":
+        from .packet_cli import run as packet_run
+
+        return packet_run(args, cfg, ROOT)
+
     if args.command == "doctor":
         from .doctor import run as doctor
 
         return doctor(cfg, ROOT)
+
     if args.command == "stats":
         from .stats import compute
 

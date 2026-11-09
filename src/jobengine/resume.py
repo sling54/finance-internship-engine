@@ -13,7 +13,22 @@ import re
 
 log = logging.getLogger(__name__)
 
-FIELDS = ("name", "school", "degree", "major", "minor", "gpa", "graduation", "work_authorization")
+FIELDS = (
+    "name",
+    "school",
+    "degree",
+    "major",
+    "minor",
+    "gpa",
+    "graduation",
+    "work_authorization",
+    "email",
+    "phone",
+    "linkedin",
+)
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_PHONE = re.compile(r"(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b")
+_LINKEDIN = re.compile(r"(?:https?://)?(?:www\.)?linkedin\.com/in/[\w-]+/?", re.I)
 DEGREES = ("bachelors", "masters", "phd")
 AUTHORIZATIONS = ("us_citizen", "permanent_resident", "needs_sponsorship")
 MONTHS = {
@@ -123,6 +138,13 @@ def guess_from_resume(text: str) -> dict:
     authorization = _work_authorization(text)
     if authorization:
         found["work_authorization"] = authorization
+    # Contact details, for application forms (jobengine packet).
+    for key, pattern in (("email", _EMAIL), ("phone", _PHONE), ("linkedin", _LINKEDIN)):
+        hit = pattern.search(text)
+        if hit:
+            found[key] = hit.group(0).strip()
+    if "linkedin" in found and not found["linkedin"].lower().startswith("http"):
+        found["linkedin"] = "https://" + found["linkedin"]
     return found
 
 
@@ -147,6 +169,12 @@ def clean(values: dict) -> dict:
         elif key == "degree" and value not in DEGREES:
             continue
         elif key == "work_authorization" and value not in AUTHORIZATIONS:
+            continue
+        elif key == "email" and not _EMAIL.fullmatch(str(value)):
+            continue
+        elif key == "phone" and len(re.sub(r"\D", "", str(value))) < 10:
+            continue
+        elif key == "linkedin" and "linkedin.com/in/" not in str(value).lower():
             continue
         elif not isinstance(value, str):
             continue

@@ -211,6 +211,33 @@ jobengine applied --company "Group One Trading" --role "Trading Analyst Intern"
 jobengine track --days 30    # first run: read the last 30 days
 ```
 
+## Application packets
+
+```bash
+jobengine packet dv commodities trading       # a role from data/jobs_latest.csv
+jobengine packet --url "https://..." --company "Firm" --role "Role"
+jobengine packet dv commodities trading --fill   # also fill in the form in a browser
+```
+
+`jobengine packet` writes `data/packets/<firm-role>/packet.md` with every question the form
+asks and the answer to give:
+
+- **From your profile:** name, email, phone, LinkedIn, school, degree, major, GPA, graduation
+  date, resume file, work authorization and sponsorship (Yes/No from `work_authorization`).
+- **Fixed rules:** "How did you hear about us" and, where offered, "decline to self-identify"
+  on gender, race, veteran and disability questions.
+- **AI drafts:** open questions ("Why this firm?") drafted by your local model from the posting
+  and your resume, checked like outreach hooks, and marked for you to edit.
+- **Left for you:** anything else, with the dropdown's options listed.
+
+Greenhouse forms are read from Greenhouse's public API, so custom questions are included; other
+boards get the standard fields plus `default_questions` from `config/apply.yml`.
+
+`--fill` opens Chromium on the application page (sign-ins are kept in `data/browser-profile`),
+types the answers in and uploads your resume. **It never clicks Submit.** You review the form,
+submit it yourself, then answer "y" and the application is added to your tracker. Needs
+`pip install -e ".[apply]" && playwright install chromium`.
+
 ## Cold outreach drafts
 
 After you apply, `jobengine outreach plan` finds people at each firm with
@@ -326,6 +353,7 @@ src/jobengine/
   pipeline.py    collect -> dedupe -> filter -> AI score -> CSV
   scorer.py      LM Studio fit score, cached in data/scores.json
   outreach/      Hunter.io contacts, templates and Gmail drafts (data/outreach.json)
+  packet.py      application packets; formfill.py fills the form in a browser (never submits)
   zone.py        OpenRouteService drive-time zone
   cli.py         `jobengine scan`, `jobengine zone`
 tests/           pytest suite and fixtures
@@ -335,7 +363,7 @@ tests/           pytest suite and fixtures
 
 - [x] Collect from six sources, de-duplicate, filter by title, eligibility, season, location
 - [x] Fit score (1–5) for each role from a local LLM, with a one-line reason
-- [ ] Application packets: tailored resume and prefilled answers (submission stays manual)
+- [x] Application packets: prefilled answers and form filling (submission stays manual)
 - [x] Tracker sync: Gmail status emails update the application spreadsheet
 - [x] Outreach: recruiter contact drafts, sent only after approval
 
