@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 from openpyxl import Workbook
 
-from .config import load_yaml
+from .config import load_with_local, load_yaml
 
 
 def _ask(label, default="", convert=str):
@@ -96,7 +96,7 @@ def _profile(example, found=None, resume_path=""):
 def _resume_facts(config: Path, resume: Path) -> dict:
     """Profile defaults read from the resume, with a line saying what was found."""
     from .resume import read_profile_facts
-    from .scorer import LMStudio, read_resume
+    from .scorer import client_from, read_resume
 
     if not resume.is_file():
         raise RuntimeError(f"no resume at {resume}")
@@ -107,17 +107,8 @@ def _resume_facts(config: Path, resume: Path) -> dict:
     if not text.strip():
         print(f"Found no text in {resume.name}, so every prompt starts blank.")
         return {}
-    scoring = load_yaml(config / "scoring.yml") if (config / "scoring.yml").exists() else {}
-    client = None
-    if scoring.get("enabled", False):
-        lm = scoring.get("lm_studio", {})
-        client = LMStudio(
-            lm.get("url", "http://localhost:1234/v1"),
-            lm.get("model", ""),
-            lm.get("timeout_seconds", 180),
-            lm.get("max_tokens", 4096),
-            scoring.get("fast_mode", True),
-        )
+    scoring = load_with_local(config, "scoring")
+    client = client_from(scoring, config.parent) if scoring.get("enabled", False) else None
     found, reader = read_profile_facts(text, client)
     how = reader
     if reader == "rules":

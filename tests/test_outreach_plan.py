@@ -410,7 +410,7 @@ def project(root, monkeypatch):
     load = Config.load
     monkeypatch.setattr(cli.Config, "load", lambda: load(config))
     monkeypatch.delenv("HUNTER_API_KEY", raising=False)
-    monkeypatch.setattr("jobengine.outreach.cli.local_model", lambda scoring: None)
+    monkeypatch.setattr("jobengine.outreach.cli.local_model", lambda *args: None)
     return root
 
 

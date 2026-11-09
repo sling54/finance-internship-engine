@@ -17,6 +17,27 @@ def load_yaml(path: Path) -> dict:
         return yaml.safe_load(fh) or {}
 
 
+def deep_merge(base: dict, override: dict) -> dict:
+    """base with override on top: nested dicts merge, anything else (lists too) is replaced."""
+    out = dict(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def load_with_local(config_dir: Path, name: str) -> dict:
+    """config/<name>.yml, with your git-ignored config/<name>.local.yml on top, if it exists.
+
+    Lets each person change any setting (tracks, sources, scoring, outreach) without editing
+    the shared file, so `git pull` never conflicts with your choices."""
+    base_path, local_path = config_dir / f"{name}.yml", config_dir / f"{name}.local.yml"
+    base = load_yaml(base_path) if base_path.exists() else {}
+    return deep_merge(base, load_yaml(local_path)) if local_path.exists() else base
+
+
 @dataclass
 class Config:
     titles: dict
@@ -38,16 +59,14 @@ class Config:
             for kind, entries in load_yaml(local_firms).items():
                 firms.setdefault(kind, {}).update(entries or {})
         profile = load_yaml(profile_path)
-        scoring = (
-            load_yaml(config_dir / "scoring.yml") if (config_dir / "scoring.yml").exists() else {}
-        )
+        scoring = load_with_local(config_dir, "scoring")
         if not is_example and profile.get("what_i_want"):
             # Your own words from `jobengine init` replace the shared default.
             scoring["what_i_want"] = profile["what_i_want"]
         return cls(
-            titles=load_yaml(config_dir / "titles.yml"),
+            titles=load_with_local(config_dir, "titles"),
             firms=firms,
-            sources=load_yaml(config_dir / "sources.yml"),
+            sources=load_with_local(config_dir, "sources"),
             profile=profile,
             profile_is_example=is_example,
             scoring=scoring,

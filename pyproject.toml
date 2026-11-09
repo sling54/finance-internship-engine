@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 jobspy = ["python-jobspy>=1.1.80"]
 gmail = ["google-api-python-client>=2.100", "google-auth-oauthlib>=1.1"]
+apply = ["playwright>=1.40"]
 dev = ["pytest>=8.0", "ruff>=0.6"]
 
 [project.scripts]

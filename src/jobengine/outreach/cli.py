@@ -7,20 +7,13 @@ from pathlib import Path
 from . import load_settings, load_templates
 
 
-def local_model(scoring: dict):
-    """LM Studio for the {hook} sentence, or None if scoring is off or the server is down."""
+def local_model(scoring: dict, root: Path | None = None):
+    """The model for the {hook} sentence, or None if scoring is off or the server is down."""
     if not scoring.get("enabled", False):
         return None
-    from ..scorer import LMStudio
+    from ..scorer import client_from
 
-    lm = scoring.get("lm_studio", {})
-    client = LMStudio(
-        lm.get("url", "http://localhost:1234/v1"),
-        lm.get("model", ""),
-        lm.get("timeout_seconds", 180),
-        lm.get("max_tokens", 4096),
-        scoring.get("fast_mode", True),
-    )
+    client = client_from(scoring, root)
     try:
         client.pick_model()
     except Exception:
@@ -70,7 +63,7 @@ def run_plan(cfg, root: Path, dry_run: bool) -> int:
                 'Gmail isn\'t set up; run pip install -e ".[gmail]" and add auth/credentials.json.'
             )
             return 1
-    client = local_model(cfg.scoring)
+    client = local_model(cfg.scoring, root)
     if client is None:
         print("LM Studio isn't running, so each template's fallback_hook is used.")
     report = plan(
