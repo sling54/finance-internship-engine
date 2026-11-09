@@ -93,6 +93,9 @@ def scan(firms: dict) -> list[Posting]:
             try:
                 data = get_json(url.format(token=token), sess, **params)
                 found = parser(company, data)
+                if kind == "greenhouse":  # lets the link check ask this board about the job
+                    for job in found:
+                        job.extra["greenhouse_board"] = token
                 log.info("%s/%s: %d postings", kind, token, len(found))
                 jobs.extend(found)
             except Exception as exc:  # one bad board must not stop the scan

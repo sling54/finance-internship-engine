@@ -162,6 +162,28 @@ jobengine removed               # list removed roles and their URLs
 jobengine restore <url>         # bring one back on the next scan
 ```
 
+## Closed-listing check
+
+After filtering, each scan checks that every kept role's listing is still open and gives it
+a status of open, closed, or unknown. Workday, Greenhouse, Lever, Ashby and SmartRecruiters
+roles are checked through those boards' public job endpoints. Any other link is fetched and
+counts as closed on a 404 or 410, or when the page says something like "no longer accepting
+applications".
+
+- **Closed** roles are dropped, listed in the rejected CSV as `removed: listing closed (...)`,
+  and recorded in `data/removed.json` (`jobengine restore <url>` brings one back).
+- **Unknown** roles cover timeouts, 403, 429, 5xx, and sites that block automated checks.
+  They are kept, and the results page marks them **Not verified**. Unknown roles posted more
+  than 120 days ago are dropped; roles with no date are kept.
+- Links that redirect to a careers home page are flagged so you can search for the role there.
+
+Answers are cached for 24 hours in `data/link_check.json`, and a failed check never stops the
+scan. Settings (on/off, concurrency, the gap between requests to one site, timeout, cache age,
+the 120-day limit and the closed phrases) are under `link_check:` in `config/sources.yml`.
+
+If `data/removed.json` is damaged, the scan and results page keep running: a copy is saved
+as `data/removed.json.unreadable-*` and a warning explains what happened.
+
 ## Tracker that updates itself
 
 `jobengine track` reads recent job emails from Gmail and keeps the application spreadsheet
@@ -262,6 +284,7 @@ src/jobengine/
   scanners/      ats.py, lists.py, boards.py, alerts.py
   filters/       titles.py, eligibility.py, season.py, location.py, dedup.py, applied.py, removed.py
   removed.py     shared list of removed roles (data/removed.json)
+  link_check.py  open/closed check for kept roles, cached in data/link_check.json
   pipeline.py    collect -> dedupe -> filter -> AI score -> CSV
   scorer.py      LM Studio fit score, cached in data/scores.json
   outreach/      Hunter.io contacts, templates and Gmail drafts (data/outreach.json)
