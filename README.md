@@ -226,6 +226,16 @@ jobengine outreach send              # send the approved ones
   Replied and sets the application's Next Action; a bounce marks it Bounced. App Status
   never changes because of outreach.
 
+## Your numbers
+
+```bash
+jobengine stats              # scans, applications by status, response and interview rates, outreach
+jobengine stats --markdown   # the same as a table to paste into a README or a slide
+```
+
+Each scan adds a line to `data/scan_history.json`. A response is an assessment, interview,
+offer or rejection; an automatic "we received your application" email doesn't count.
+
 ## Run it every morning (macOS)
 
 ```bash
