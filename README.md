@@ -258,6 +258,28 @@ jobengine stats --markdown   # the same as a table to paste into a README or a s
 Each scan adds a line to `data/scan_history.json`. A response is an assessment, interview,
 offer or rejection; an automatic "we received your application" email doesn't count.
 
+## Your own settings
+
+Every file in `config/` can be changed for you alone with a git-ignored `.local.yml` next to it:
+`titles.local.yml`, `sources.local.yml`, `scoring.local.yml`, `outreach.local.yml`,
+`firms.local.yml`. Write only what you change; the rest comes from the shared file, and
+`git pull` never conflicts with your choices. Lists (like `tracks`) are replaced whole.
+
+```yaml
+# config/sources.local.yml: no LinkedIn/Indeed scraping for me
+jobspy:
+  enabled: false
+```
+
+```yaml
+# config/scoring.local.yml: a smaller model, or any OpenAI-compatible server
+lm_studio:
+  url: http://localhost:11434/v1     # Ollama; for a hosted server put LLM_API_KEY=... in .env
+  model: qwen3
+```
+
+Run `jobengine doctor` any time to see what is set up and what to fix next.
+
 ## Run it every morning (macOS)
 
 ```bash
@@ -268,6 +290,12 @@ offer or rejection; an automatic "we received your application" email doesn't co
 launchd runs `jobengine track` every hour and `scripts/daily-scan.sh` each morning, which scans every enabled source, writes the CSVs and a log
 in `logs/`, and shows a notification with the number of new roles. If the Mac is asleep at the
 scheduled time, the scan runs as soon as it wakes.
+
+- **Windows:** `.\scripts\schedule-daily-scan.ps1` in PowerShell does the same with Task
+  Scheduler (`.\scripts\schedule-daily-scan.ps1 off` stops it). Not yet tried on a real
+  Windows machine; tell us if it fails.
+- **Linux:** add `30 7 * * * cd /path/to/finance-internship-engine && ./scripts/daily-scan.sh`
+  with `crontab -e`.
 
 ## Privacy
 

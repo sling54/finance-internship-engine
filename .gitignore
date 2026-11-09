@@ -222,8 +222,7 @@ __marimo__/
 # ---- Personal data: never commit ----
 # Your real profile, tracker, resume, keys and all engine output stay local.
 config/profile.yml
-config/firms.local.yml
-config/outreach_templates.local.yml
+config/*.local.yml
 data/
 *.xlsx
 *.xls

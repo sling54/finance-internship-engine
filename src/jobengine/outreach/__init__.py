@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..config import load_yaml
+from ..config import load_with_local, load_yaml
 
 
 def load_settings(config_dir: Path) -> dict:
-    path = config_dir / "outreach.yml"
-    return load_yaml(path) if path.exists() else {}
+    """config/outreach.yml with your config/outreach.local.yml on top."""
+    return load_with_local(config_dir, "outreach")
 
 
 def load_templates(config_dir: Path) -> dict:

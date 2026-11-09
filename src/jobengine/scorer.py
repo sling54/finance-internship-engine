@@ -59,7 +59,8 @@ class ScoreReport:
 
 
 class LMStudio:
-    """Talks to LM Studio's OpenAI-compatible local server."""
+    """Talks to LM Studio's OpenAI-compatible local server, or any server with the same API
+    (Ollama, vLLM, a hosted provider) when given its URL and, if it needs one, an API key."""
 
     def __init__(
         self,
@@ -68,6 +69,7 @@ class LMStudio:
         timeout: int = 180,
         max_tokens: int = 4096,
         no_thinking: bool = True,
+        api_key: str = "",
     ):
         self.url = url.rstrip("/")
         self.wanted = model
@@ -77,6 +79,8 @@ class LMStudio:
         self.model = ""
         self.thought = False  # did the last reply include thinking?
         self.http = requests.Session()
+        if api_key:
+            self.http.headers["Authorization"] = f"Bearer {api_key}"
 
     def pick_model(self) -> str:
         """Find the model to use. Raises if the server isn't reachable."""
@@ -115,6 +119,25 @@ class LMStudio:
                 "raise max_tokens in config/scoring.yml"
             )
         return content
+
+
+def client_from(scoring: dict, root: Path | None = None) -> LMStudio:
+    """The model client described by config/scoring.yml. The API key, if any, comes from
+    lm_studio.api_key or LLM_API_KEY in the environment or .env (keep keys out of git)."""
+    lm = scoring.get("lm_studio", {})
+    key = lm.get("api_key", "")
+    if not key and root is not None:
+        from .zone import api_key
+
+        key = api_key(root, "LLM_API_KEY") or ""
+    return LMStudio(
+        lm.get("url", "http://localhost:1234/v1"),
+        lm.get("model", ""),
+        lm.get("timeout_seconds", 180),
+        lm.get("max_tokens", 4096),
+        scoring.get("fast_mode", True),
+        key,
+    )
 
 
 def parse_reply(text: str) -> tuple[int, str]:
@@ -208,15 +231,8 @@ def score_jobs(
         report.skipped = "turned off in config/scoring.yml"
         return report
 
-    lm = scoring.get("lm_studio", {})
-    url = lm.get("url", "http://localhost:1234/v1")
-    client = client or LMStudio(
-        url,
-        lm.get("model", ""),
-        lm.get("timeout_seconds", 180),
-        lm.get("max_tokens", 4096),
-        scoring.get("fast_mode", True),
-    )
+    url = scoring.get("lm_studio", {}).get("url", "http://localhost:1234/v1")
+    client = client or client_from(scoring, root)
     try:
         report.model = client.pick_model()
     except Exception as exc:
