@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from . import removed
+from . import link_check, removed
 from .config import ROOT, Config
 from .filters.applied import AppliedFilter, read_tracker
 from .filters.dedup import dedupe, job_key
@@ -48,6 +48,7 @@ class Result:
     rejected: list[tuple[Posting, str]] = field(default_factory=list)
     collected: Counter = field(default_factory=Counter)
     ai: ScoreReport | None = None
+    links: link_check.Report | None = None
 
     def summary(self) -> str:
         reasons = Counter(r.split(":")[0] for _, r in self.rejected)
@@ -57,6 +58,8 @@ class Result:
             f"Kept: {len(self.kept)}   Dropped: {len(self.rejected)}",
         ]
         lines += [f"  - {reason}: {n}" for reason, n in reasons.most_common(8)]
+        if self.links:
+            lines.append(self.links.summary())
         if self.ai:
             lines.append(self.ai.summary())
         return "\n".join(lines)
@@ -164,11 +167,27 @@ def write_csv(path: Path, jobs: list[Posting], reasons: list[str] | None = None)
             writer.writerow(row)
 
 
+def check_links(result: Result, cfg: Config, root: Path, get=None) -> None:
+    """Drop closed listings. A failure here never fails the scan."""
+    settings = link_check.settings(cfg.sources)
+    if not settings["enabled"] or not result.kept:
+        return
+    say(f"Checking {len(result.kept)} listings are still open...")
+    try:
+        result.links = link_check.apply(result, settings, root, get)
+    except Exception as exc:
+        say("link check failed (see warning below); keeping every role")
+        log.warning("link check failed: %s", exc)
+        return
+    say(result.links.summary())
+
+
 def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT, ai: bool = True) -> Result:
     jobs = collect(cfg, only, root)
     say(f"Filtering {len(jobs):,} postings...")
     result = run_filters(jobs, build_filters(cfg, root, DriveZone.load(root)))
     say(f"{len(result.kept)} roles kept")
+    check_links(result, cfg, root)
     data = root / "data"
     mark_new(result.kept, data / "seen.json")
     if ai:
@@ -181,4 +200,22 @@ def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT, ai: bool =
         [j for j, _ in result.rejected],
         [r for _, r in result.rejected],
     )
+    record_history(data / "scan_history.json", today, result)
     return result
+
+
+def record_history(path: Path, day: str, result: Result) -> None:
+    """One line per scan (collected, kept, dropped), for `jobengine stats`."""
+    try:
+        history = json.loads(path.read_text()) if path.exists() else []
+    except json.JSONDecodeError:
+        history = []
+    history.append(
+        {
+            "date": day,
+            "collected": sum(result.collected.values()),
+            "kept": len(result.kept),
+            "dropped": len(result.rejected),
+        }
+    )
+    path.write_text(json.dumps(history[-1000:], indent=0))

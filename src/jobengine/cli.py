@@ -79,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     steps.add_parser("review", help="approve or skip each draft on a local page")
     steps.add_parser("send", help="send approved drafts (at most 20 in any 24 hours)")
     sub.add_parser("doctor", help="check your setup and say what to fix")
+    stats = sub.add_parser("stats", help="scans, applications, response rate and outreach")
+    stats.add_argument("--markdown", action="store_true", help="print a table for a README")
     restore = sub.add_parser("restore", help="bring back a removed role")
     restore.add_argument("url", help="the role's exact URL, as shown by jobengine removed")
 
@@ -135,6 +137,13 @@ def main(argv: list[str] | None = None) -> int:
         from .doctor import run as doctor
 
         return doctor(cfg, ROOT)
+    if args.command == "stats":
+        from .stats import compute
+
+        tracker = ROOT / cfg.profile.get("tracker_path", "data/ApplicationTracker.xlsx")
+        numbers = compute(ROOT, tracker)
+        print(numbers.markdown() if args.markdown else numbers.text())
+        return 0
 
     if args.command == "results":
         from .results import show_results

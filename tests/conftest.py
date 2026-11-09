@@ -12,7 +12,23 @@ def cfg() -> Config:
     config = Config.load(CONFIG_DIR)  # the real titles.yml and sources.yml
     # Always test against the example profile, never your private one.
     config.profile = load_yaml(CONFIG_DIR / "profile.example.yml")
+    # Scans in tests never check links unless a test turns it on with a fake fetcher.
+    config.sources = {**config.sources, "link_check": {"enabled": False}}
     return config
+
+
+@pytest.fixture(autouse=True)
+def no_link_check_network(monkeypatch):
+    """Any link check that forgets its fake fails fast instead of using the network."""
+    from jobengine import link_check
+
+    def refuse(timeout):
+        def get(url):
+            raise ConnectionError(f"network disabled in tests: {url}")
+
+        return get
+
+    monkeypatch.setattr(link_check, "http_get", refuse)
 
 
 @pytest.fixture
