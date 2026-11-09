@@ -76,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
     plan.add_argument(
         "--dry-run", action="store_true", help="show the drafts it would write; write nothing"
     )
+    steps.add_parser("review", help="approve or skip each draft on a local page")
+    steps.add_parser("send", help="send approved drafts (at most 20 in any 24 hours)")
     restore = sub.add_parser("restore", help="bring back a removed role")
     restore.add_argument("url", help="the role's exact URL, as shown by jobengine removed")
 
@@ -120,9 +122,13 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.command == "outreach":
-        from .outreach.cli import run_plan
+        from .outreach import cli as outreach
 
-        return run_plan(cfg, ROOT, args.dry_run)
+        if args.outreach_command == "review":
+            return outreach.run_review(cfg, ROOT)
+        if args.outreach_command == "send":
+            return outreach.run_send(cfg, ROOT)
+        return outreach.run_plan(cfg, ROOT, args.dry_run)
 
     if args.command == "results":
         from .results import show_results

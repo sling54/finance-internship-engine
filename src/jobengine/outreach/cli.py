@@ -87,3 +87,58 @@ def run_plan(cfg, root: Path, dry_run: bool) -> int:
     print(report.summary())
     print(f"Hunter lookups this month: {hunter.used} of {hunter.monthly_limit}.")
     return 0
+
+
+def _gmail(cfg, root: Path):
+    from ..gmail import service
+
+    gmail = service(cfg.sources.get("alert_emails", {}), root)
+    if gmail is None:
+        print('Gmail isn\'t set up; run pip install -e ".[gmail]" and add auth/credentials.json.')
+    return gmail
+
+
+def update_sheet(cfg, root: Path, log_) -> None:
+    """Copy the log's statuses to the tracker's Outreach sheet, unless Excel has it open."""
+    from ..tracker_sync import Tracker, is_open_in_excel
+    from .sheet import sync_sheet
+
+    tracker = root / cfg.profile.get("tracker_path", "data/ApplicationTracker.xlsx")
+    if not tracker.exists() or is_open_in_excel(tracker):
+        return
+    t = Tracker(tracker)
+    if sync_sheet(t, list(log_.entries.values())):
+        t.save(root / "data" / "backups")
+
+
+def run_review(cfg, root: Path) -> int:
+    from .review import show_review
+    from .store import Log
+
+    log_ = Log.load(root)
+    if not any(e.status == "drafted" for e in log_.entries.values()):
+        print("No outreach drafts waiting for review. Run jobengine outreach plan first.")
+        return 0
+    gmail = _gmail(cfg, root)
+    if gmail is None:
+        return 1
+    show_review(gmail, log_)
+    update_sheet(cfg, root, log_)
+    return 0
+
+
+def run_send(cfg, root: Path) -> int:
+    from .send import send_approved
+    from .store import Log
+
+    log_ = Log.load(root)
+    if not any(e.status == "approved" for e in log_.entries.values()):
+        print("No approved outreach drafts to send.")
+        return 0
+    gmail = _gmail(cfg, root)
+    if gmail is None:
+        return 1
+    report = send_approved(gmail, log_, load_settings(root / "config"))
+    print(report.summary())
+    update_sheet(cfg, root, log_)
+    return 0

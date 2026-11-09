@@ -36,6 +36,7 @@ class Entry:
     draft_id: str = ""
     message_id: str = ""
     thread_id: str = ""
+    approved_at: str = ""
     sent_at: str = ""
     note: str = ""
 

@@ -213,7 +213,18 @@ cp config/outreach_templates.example.yml config/outreach_templates.local.yml   #
 echo "HUNTER_API_KEY=your-key" >> .env
 jobengine outreach plan --dry-run    # see the drafts it would write (works with the examples)
 jobengine outreach plan              # write the drafts
+jobengine outreach review            # approve or skip each one on a local page
+jobengine outreach send              # send the approved ones
 ```
+
+- **Approve:** `outreach review` opens a page on your computer showing each draft as it is in
+  Gmail now, with a link to edit it there. Approve marks it to send; Skip deletes the draft.
+- **Send:** only approved drafts are ever sent, as they are in Gmail at that moment, so your
+  edits go out. At most `daily_send_limit` (20) in any 24 hours, with a random 45–120 second
+  pause between sends. The morning run sends whatever you approved; the rest wait a day.
+- **Replies:** `jobengine track` reads each sent email's thread. A reply marks the contact
+  Replied and sets the application's Next Action; a bounce marks it Bounced. App Status
+  never changes because of outreach.
 
 ## Run it every morning (macOS)
 
@@ -265,7 +276,7 @@ tests/           pytest suite and fixtures
 - [x] Fit score (1–5) for each role from a local LLM, with a one-line reason
 - [ ] Application packets: tailored resume and prefilled answers (submission stays manual)
 - [x] Tracker sync: Gmail status emails update the application spreadsheet
-- [ ] Outreach: recruiter contact drafts, sent only after approval
+- [x] Outreach: recruiter contact drafts, sent only after approval
 
 ## License
 

@@ -11,6 +11,7 @@ LOG="logs/scan_$(date +%F).log"
   .venv/bin/jobengine scan
   echo "=== scan finished $(date) (exit $?) ==="
   .venv/bin/jobengine track
+  .venv/bin/jobengine outreach send    # only drafts you approved; nothing if there are none
 } >>"$LOG" 2>&1
 
 # Count roles flagged "new" in today's results.
