@@ -40,7 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true", help="log every source call")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("init", help="set up your local profile and application tracker")
+    init = sub.add_parser("init", help="set up your local profile and application tracker")
+    init.add_argument(
+        "--resume", metavar="PATH", help="fill in the answers from this resume (PDF or text)"
+    )
     sub.add_parser("results", help="open the latest scan results in your browser")
     scan = sub.add_parser("scan", help="collect, filter and write data/jobs_latest.csv")
     scan.add_argument(
@@ -67,6 +70,14 @@ def main(argv: list[str] | None = None) -> int:
     applied.add_argument("--role", default="", help="role title, with --company")
     sub.add_parser("zone", help="draw the drive-time zone with OpenRouteService (one API call)")
     sub.add_parser("removed", help="list roles you or the engine removed")
+    outreach = sub.add_parser("outreach", help="cold outreach: contacts and Gmail drafts")
+    steps = outreach.add_subparsers(dest="outreach_command", required=True)
+    plan = steps.add_parser("plan", help="find contacts for recent applications and draft emails")
+    plan.add_argument(
+        "--dry-run", action="store_true", help="show the drafts it would write; write nothing"
+    )
+    steps.add_parser("review", help="approve or skip each draft on a local page")
+    steps.add_parser("send", help="send approved drafts (at most 20 in any 24 hours)")
     restore = sub.add_parser("restore", help="bring back a removed role")
     restore.add_argument("url", help="the role's exact URL, as shown by jobengine removed")
 
@@ -78,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "init":
         from .setup import initialize
 
-        return initialize(ROOT)
+        return initialize(ROOT, args.resume)
     if args.command == "applied" and not (args.company or args.search):
         applied.error("provide a search query or --company")
     if args.command == "removed":
@@ -109,6 +120,15 @@ def main(argv: list[str] | None = None) -> int:
             "Note: using config/profile.example.yml. Run jobengine init to set up your profile.",
             file=sys.stderr,
         )
+
+    if args.command == "outreach":
+        from .outreach import cli as outreach
+
+        if args.outreach_command == "review":
+            return outreach.run_review(cfg, ROOT)
+        if args.outreach_command == "send":
+            return outreach.run_send(cfg, ROOT)
+        return outreach.run_plan(cfg, ROOT, args.dry_run)
 
     if args.command == "results":
         from .results import show_results

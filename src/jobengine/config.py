@@ -37,13 +37,18 @@ class Config:
         if local_firms.exists():
             for kind, entries in load_yaml(local_firms).items():
                 firms.setdefault(kind, {}).update(entries or {})
+        profile = load_yaml(profile_path)
+        scoring = (
+            load_yaml(config_dir / "scoring.yml") if (config_dir / "scoring.yml").exists() else {}
+        )
+        if not is_example and profile.get("what_i_want"):
+            # Your own words from `jobengine init` replace the shared default.
+            scoring["what_i_want"] = profile["what_i_want"]
         return cls(
             titles=load_yaml(config_dir / "titles.yml"),
             firms=firms,
             sources=load_yaml(config_dir / "sources.yml"),
-            profile=load_yaml(profile_path),
+            profile=profile,
             profile_is_example=is_example,
-            scoring=load_yaml(config_dir / "scoring.yml")
-            if (config_dir / "scoring.yml").exists()
-            else {},
+            scoring=scoring,
         )

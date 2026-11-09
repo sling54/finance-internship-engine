@@ -109,6 +109,19 @@ git-ignored `config/profile.yml` and creates a blank tracker at the chosen
 path if one is missing. It asks before replacing a profile and keeps any
 existing tracker.
 
+To skip most of the typing, point it at your resume:
+
+```bash
+jobengine init --resume ~/Documents/Resume.pdf
+```
+
+It reads your name, school, degree, major, minor, GPA, expected graduation and work
+authorization from the resume and shows each one as the default, so you press Enter to keep it
+or type a correction. Fixed rules always run, and if LM Studio is running the local model reads
+the resume too. Nothing leaves your computer. The last prompt asks what internships you want in
+plain English; your answer is saved in `config/profile.yml` and replaces `what_i_want` from
+`config/scoring.yml` for the AI fit score.
+
 You can run `jobengine scan --no-ai` without Gmail credentials or LM Studio.
 After submitting an application, record it with
 `jobengine applied --company "Firm" --role "Role"`.
@@ -198,6 +211,43 @@ jobengine applied --company "Group One Trading" --role "Trading Analyst Intern"
 jobengine track --days 30    # first run: read the last 30 days
 ```
 
+## Cold outreach drafts
+
+After you apply, `jobengine outreach plan` finds people at each firm with
+[Hunter.io](https://hunter.io) and writes a Gmail draft to each from your own templates.
+Nothing is sent.
+
+- **Who:** tracker rows marked Applied or Confirmed that have no outreach yet, oldest first.
+  Each gets 2 contacts: recruiting first, then the role's team (trader, quant, portfolio...),
+  then anyone else, by Hunter's confidence. At most 3 per firm, and never the same person
+  twice within 90 days.
+- **What:** your template for that kind of contact, word for word, plus one sentence
+  (`{hook}`) the local model writes from the posting and your resume. A sentence with a link,
+  a number that isn't in the posting or resume, another firm's name or more than 30 words is
+  thrown out, and the template's `fallback_hook` is used instead.
+- **Where:** drafts are labelled `jobengine/outreach` in Gmail. Every contact is logged in
+  `data/outreach.json` and in an Outreach sheet in your tracker.
+- **Cost:** Hunter lookups are cached for 30 days and capped by
+  `hunter.monthly_credit_limit` in `config/outreach.yml`.
+
+```bash
+cp config/outreach_templates.example.yml config/outreach_templates.local.yml   # then edit it
+echo "HUNTER_API_KEY=your-key" >> .env
+jobengine outreach plan --dry-run    # see the drafts it would write (works with the examples)
+jobengine outreach plan              # write the drafts
+jobengine outreach review            # approve or skip each one on a local page
+jobengine outreach send              # send the approved ones
+```
+
+- **Approve:** `outreach review` opens a page on your computer showing each draft as it is in
+  Gmail now, with a link to edit it there. Approve marks it to send; Skip deletes the draft.
+- **Send:** only approved drafts are ever sent, as they are in Gmail at that moment, so your
+  edits go out. At most `daily_send_limit` (20) in any 24 hours, with a random 45–120 second
+  pause between sends. The morning run sends whatever you approved; the rest wait a day.
+- **Replies:** `jobengine track` reads each sent email's thread. A reply marks the contact
+  Replied and sets the application's Next Action; a bounce marks it Bounced. App Status
+  never changes because of outreach.
+
 ## Run it every morning (macOS)
 
 ```bash
@@ -237,6 +287,7 @@ src/jobengine/
   link_check.py  open/closed check for kept roles, cached in data/link_check.json
   pipeline.py    collect -> dedupe -> filter -> AI score -> CSV
   scorer.py      LM Studio fit score, cached in data/scores.json
+  outreach/      Hunter.io contacts, templates and Gmail drafts (data/outreach.json)
   zone.py        OpenRouteService drive-time zone
   cli.py         `jobengine scan`, `jobengine zone`
 tests/           pytest suite and fixtures
@@ -248,7 +299,7 @@ tests/           pytest suite and fixtures
 - [x] Fit score (1–5) for each role from a local LLM, with a one-line reason
 - [ ] Application packets: tailored resume and prefilled answers (submission stays manual)
 - [x] Tracker sync: Gmail status emails update the application spreadsheet
-- [ ] Outreach: recruiter contact drafts, sent only after approval
+- [x] Outreach: recruiter contact drafts, sent only after approval
 
 ## License
 

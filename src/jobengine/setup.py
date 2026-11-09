@@ -1,4 +1,8 @@
-"""Interactive setup for a student's local profile and application tracker."""
+"""Interactive setup for a student's local profile and application tracker.
+
+With `jobengine init --resume Resume.pdf`, the answers are filled in from the resume first,
+so most prompts only need Enter.
+"""
 
 from __future__ import annotations
 
@@ -40,20 +44,21 @@ def _month(value):
     return value
 
 
-def _profile(example):
+def _profile(example, found=None, resume_path=""):
+    found = found or {}
     today = date.today()
-    graduation_default = f"{today.year + 1}-05"
+    graduation_default = found.get("graduation", f"{today.year + 1}-05")
     profile = {
-        "name": _ask("Name"),
-        "school": _ask("School"),
+        "name": _ask("Name", found.get("name", "")),
+        "school": _ask("School", found.get("school", "")),
         "degree": _ask(
             "Degree (bachelors, masters, phd)",
-            example["degree"],
+            found.get("degree", example["degree"]),
             _choice("bachelors", "masters", "phd"),
         ),
-        "major": _ask("Major", example["major"]),
-        "minor": _ask("Minor"),
-        "gpa": _ask("GPA", None, float),
+        "major": _ask("Major", found.get("major", example["major"])),
+        "minor": _ask("Minor", found.get("minor", "")),
+        "gpa": _ask("GPA", found.get("gpa"), float),
         "graduation": _ask("Expected graduation (YYYY-MM)", graduation_default, _month),
     }
     graduation = profile["graduation"]
@@ -63,7 +68,7 @@ def _profile(example):
     }
     profile["work_authorization"] = _ask(
         "US work authorization (us_citizen, permanent_resident, needs_sponsorship)",
-        "",
+        found.get("work_authorization", ""),
         _choice("us_citizen", "permanent_resident", "needs_sponsorship"),
     )
     profile["home_base"] = {
@@ -76,11 +81,55 @@ def _profile(example):
         ),
     }
     profile["tracker_path"] = str(Path(_ask("Tracker path", example["tracker_path"])).expanduser())
-    profile["resume_path"] = str(Path(_ask("Resume PDF path", example["resume_path"])).expanduser())
+    profile["resume_path"] = str(
+        Path(_ask("Resume PDF path", resume_path or example["resume_path"])).expanduser()
+    )
+    wants = _ask(
+        "What internships do you want? Describe them in plain English for the AI fit score "
+        "(Enter keeps config/scoring.yml)"
+    )
+    if wants:
+        profile["what_i_want"] = wants
     return profile
 
 
-def initialize(root: Path) -> int:
+def _resume_facts(config: Path, resume: Path) -> dict:
+    """Profile defaults read from the resume, with a line saying what was found."""
+    from .resume import read_profile_facts
+    from .scorer import LMStudio, read_resume
+
+    if not resume.is_file():
+        raise RuntimeError(f"no resume at {resume}")
+    try:
+        text = read_resume(resume, limit=6000)
+    except Exception as exc:  # a damaged or protected PDF
+        raise RuntimeError(f"couldn't read {resume.name}: {exc}") from exc
+    if not text.strip():
+        print(f"Found no text in {resume.name}, so every prompt starts blank.")
+        return {}
+    scoring = load_yaml(config / "scoring.yml") if (config / "scoring.yml").exists() else {}
+    client = None
+    if scoring.get("enabled", False):
+        lm = scoring.get("lm_studio", {})
+        client = LMStudio(
+            lm.get("url", "http://localhost:1234/v1"),
+            lm.get("model", ""),
+            lm.get("timeout_seconds", 180),
+            lm.get("max_tokens", 4096),
+            scoring.get("fast_mode", True),
+        )
+    found, reader = read_profile_facts(text, client)
+    how = reader
+    if reader == "rules":
+        how = "fixed rules (LM Studio isn't running)" if client else "fixed rules"
+    print(
+        f"Read {resume.name} with {how}: found {', '.join(found) or 'nothing'}. "
+        "Check each answer below and press Enter to keep it."
+    )
+    return found
+
+
+def initialize(root: Path, resume: str | None = None) -> int:
     config = root / "config"
     path = config / "profile.yml"
     try:
@@ -91,7 +140,11 @@ def initialize(root: Path) -> int:
         }:
             print("Kept the existing profile.")
             return 0
-        profile = _profile(load_yaml(config / "profile.example.yml"))
+        found, resume_path = {}, ""
+        if resume:
+            resume_path = str(Path(resume).expanduser().resolve())
+            found = _resume_facts(config, Path(resume_path))
+        profile = _profile(load_yaml(config / "profile.example.yml"), found, resume_path)
         tracker = root / profile["tracker_path"]
         tracker.parent.mkdir(parents=True, exist_ok=True)
         if tracker.exists():
