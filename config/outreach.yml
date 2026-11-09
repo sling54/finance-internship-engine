@@ -1,0 +1,36 @@
+# Cold outreach (jobengine outreach plan / review / send).
+# After you apply, the engine finds contacts with Hunter.io, writes a Gmail draft to each from
+# your templates, and sends only the drafts you approve. Needs HUNTER_API_KEY=... in .env.
+# Your templates: copy outreach_templates.example.yml to outreach_templates.local.yml (git-ignored).
+
+enabled: true
+
+# Which tracker rows get outreach: App Status in this list, applied at least this many days ago.
+statuses: [Applied, Confirmed]
+min_days_after_apply: 0
+max_applications_per_run: 25     # oldest applications first
+
+contacts_per_application: 2
+max_contacts_per_company: 3      # across all of a company's roles
+recontact_after_days: 90         # never email the same address again sooner than this
+min_confidence: 80               # Hunter's confidence that the address is right (0-100)
+
+# Contacts are preferred in this order: recruiting, then the role's team, then anyone else.
+recruiting_keywords: [recruiter, recruiting, talent, campus, university, early careers]
+team_keywords:
+  Trading: [trader, trading, desk]
+  Quant / derivatives: [quant, quantitative, derivatives, options]
+  Buy-side investing: [portfolio, investment, investments, research, analyst]
+  Data / software: [data, analytics, engineer, engineering, developer]
+  Wealth management: [wealth, advisor, private client]
+
+daily_send_limit: 20             # at most this many sends in any 24 hours
+send_gap_seconds: [45, 120]      # random wait between sends
+
+hunter:
+  monthly_credit_limit: 25       # set this to your Hunter plan's monthly searches
+  cache_days: 30
+
+# Company name -> email domain, for firms Hunter can't find by name.
+domains: {}
+#  Example Capital: examplecapital.com

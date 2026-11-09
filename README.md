@@ -189,6 +189,32 @@ jobengine applied --company "Group One Trading" --role "Trading Analyst Intern"
 jobengine track --days 30    # first run: read the last 30 days
 ```
 
+## Cold outreach drafts
+
+After you apply, `jobengine outreach plan` finds people at each firm with
+[Hunter.io](https://hunter.io) and writes a Gmail draft to each from your own templates.
+Nothing is sent.
+
+- **Who:** tracker rows marked Applied or Confirmed that have no outreach yet, oldest first.
+  Each gets 2 contacts: recruiting first, then the role's team (trader, quant, portfolio...),
+  then anyone else, by Hunter's confidence. At most 3 per firm, and never the same person
+  twice within 90 days.
+- **What:** your template for that kind of contact, word for word, plus one sentence
+  (`{hook}`) the local model writes from the posting and your resume. A sentence with a link,
+  a number that isn't in the posting or resume, another firm's name or more than 30 words is
+  thrown out, and the template's `fallback_hook` is used instead.
+- **Where:** drafts are labelled `jobengine/outreach` in Gmail. Every contact is logged in
+  `data/outreach.json` and in an Outreach sheet in your tracker.
+- **Cost:** Hunter lookups are cached for 30 days and capped by
+  `hunter.monthly_credit_limit` in `config/outreach.yml`.
+
+```bash
+cp config/outreach_templates.example.yml config/outreach_templates.local.yml   # then edit it
+echo "HUNTER_API_KEY=your-key" >> .env
+jobengine outreach plan --dry-run    # see the drafts it would write (works with the examples)
+jobengine outreach plan              # write the drafts
+```
+
 ## Run it every morning (macOS)
 
 ```bash
@@ -227,6 +253,7 @@ src/jobengine/
   removed.py     shared list of removed roles (data/removed.json)
   pipeline.py    collect -> dedupe -> filter -> AI score -> CSV
   scorer.py      LM Studio fit score, cached in data/scores.json
+  outreach/      Hunter.io contacts, templates and Gmail drafts (data/outreach.json)
   zone.py        OpenRouteService drive-time zone
   cli.py         `jobengine scan`, `jobengine zone`
 tests/           pytest suite and fixtures

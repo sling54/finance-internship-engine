@@ -1,0 +1,54 @@
+# Example outreach templates (fake). Copy this file to outreach_templates.local.yml and write
+# your own; the .local file is git-ignored and, once it exists, replaces this file entirely.
+# Give at least one template "for: any", so every kind of contact has a template.
+#
+# for:           recruiter, team or any (which kind of contact the template is for)
+# placeholders:  {first_name} {company} {role} {my_name} {school} {hook}
+# {hook}:        one sentence the local AI writes from the posting and your resume. If the AI
+#                is off or its sentence fails the checks, fallback_hook is used instead.
+
+templates:
+  recruiter:
+    for: recruiter
+    subject: "{role} application - {my_name}"
+    body: |
+      Hi {first_name},
+
+      I recently applied to the {role} position at {company} and wanted to introduce myself. I'm a student at {school}. {hook}
+
+      I've attached my resume and would be grateful for any advice on the process.
+
+      Best,
+      {my_name}
+    attach_resume: true
+    fallback_hook: "I'm excited about the role and the chance to learn from your team."
+
+  team_member:
+    for: team
+    subject: "Student interested in {company}"
+    body: |
+      Hi {first_name},
+
+      I'm a student at {school} and just applied to the {role} position at {company}. {hook}
+
+      Would you be open to a 15-minute call about your work on the team?
+
+      Thank you,
+      {my_name}
+    attach_resume: false
+    fallback_hook: "I'd love to hear how you got started and what the work looks like day to day."
+
+  alumni_or_general:
+    for: any
+    subject: "Quick question about {company}"
+    body: |
+      Hi {first_name},
+
+      My name is {my_name}, a student at {school}. I applied to the {role} position at {company}. {hook}
+
+      If you have a few minutes, I'd appreciate any advice.
+
+      Best regards,
+      {my_name}
+    attach_resume: false
+    fallback_hook: "I'm interested in the firm and would value your perspective."

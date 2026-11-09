@@ -22,12 +22,13 @@ ISOCHRONE_URL = "https://api.openrouteservice.org/v2/isochrones/driving-car"
 GEOCODE_URL = "https://api.openrouteservice.org/geocode/search"
 
 
-def api_key(root: Path) -> str | None:
-    key = os.environ.get("ORS_API_KEY")
+def api_key(root: Path, name: str = "ORS_API_KEY") -> str | None:
+    """A key from the environment, or else from a NAME=... line in .env."""
+    key = os.environ.get(name)
     env = root / ".env"
     if not key and env.exists():
         for line in env.read_text().splitlines():
-            if line.startswith("ORS_API_KEY="):
+            if line.startswith(f"{name}="):
                 key = line.split("=", 1)[1].strip()
     return key or None
 
