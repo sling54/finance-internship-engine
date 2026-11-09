@@ -40,7 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true", help="log every source call")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("init", help="set up your local profile and application tracker")
+    init = sub.add_parser("init", help="set up your local profile and application tracker")
+    init.add_argument(
+        "--resume", metavar="PATH", help="fill in the answers from this resume (PDF or text)"
+    )
     sub.add_parser("results", help="open the latest scan results in your browser")
     scan = sub.add_parser("scan", help="collect, filter and write data/jobs_latest.csv")
     scan.add_argument(
@@ -78,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "init":
         from .setup import initialize
 
-        return initialize(ROOT)
+        return initialize(ROOT, args.resume)
     if args.command == "applied" and not (args.company or args.search):
         applied.error("provide a search query or --company")
     if args.command == "removed":

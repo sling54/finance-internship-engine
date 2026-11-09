@@ -109,6 +109,19 @@ git-ignored `config/profile.yml` and creates a blank tracker at the chosen
 path if one is missing. It asks before replacing a profile and keeps any
 existing tracker.
 
+To skip most of the typing, point it at your resume:
+
+```bash
+jobengine init --resume ~/Documents/Resume.pdf
+```
+
+It reads your name, school, degree, major, minor, GPA, expected graduation and work
+authorization from the resume and shows each one as the default, so you press Enter to keep it
+or type a correction. Fixed rules always run, and if LM Studio is running the local model reads
+the resume too. Nothing leaves your computer. The last prompt asks what internships you want in
+plain English; your answer is saved in `config/profile.yml` and replaces `what_i_want` from
+`config/scoring.yml` for the AI fit score.
+
 You can run `jobengine scan --no-ai` without Gmail credentials or LM Studio.
 After submitting an application, record it with
 `jobengine applied --company "Firm" --role "Role"`.
