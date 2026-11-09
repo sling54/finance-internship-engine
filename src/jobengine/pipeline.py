@@ -200,4 +200,22 @@ def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT, ai: bool =
         [j for j, _ in result.rejected],
         [r for _, r in result.rejected],
     )
+    record_history(data / "scan_history.json", today, result)
     return result
+
+
+def record_history(path: Path, day: str, result: Result) -> None:
+    """One line per scan (collected, kept, dropped), for `jobengine stats`."""
+    try:
+        history = json.loads(path.read_text()) if path.exists() else []
+    except json.JSONDecodeError:
+        history = []
+    history.append(
+        {
+            "date": day,
+            "collected": sum(result.collected.values()),
+            "kept": len(result.kept),
+            "dropped": len(result.rejected),
+        }
+    )
+    path.write_text(json.dumps(history[-1000:], indent=0))
