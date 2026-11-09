@@ -494,6 +494,7 @@ class SyncReport:
     skipped_open: bool = False
     left: int = 0  # emails not read because Gmail stopped answering
     added: list[str] = field(default_factory=list)
+    outreach: list[str] = field(default_factory=list)  # replies and bounces to outreach
 
     def summary(self) -> str:
         if self.skipped_open:
@@ -505,6 +506,9 @@ class SyncReport:
         ]
         lines += [f"  + {a}" for a in self.added]
         lines += [f"  - {u}" for u in self.updated]
+        if self.outreach:
+            lines.append(f"Outreach: {len(self.outreach)} replies or bounces.")
+            lines += [f"  * {o}" for o in self.outreach]
         if self.left:
             lines.append(
                 f"Gmail paused us with {self.left} emails left; run again in a minute "
@@ -575,12 +579,28 @@ def apply_reminders(tracker: Tracker, rows: list[Row], today: date, report: Sync
             continue
         days = (today - row.applied).days
         current = tracker.get(row, "Next Action") or ""
+        if current.startswith("Outreach reply"):  # someone answered: that note stays
+            continue
         if days >= 45 and "ghosted" not in current:
             tracker.set(row, "Next Action", f"No reply in {days} days: mark Ghosted?")
             report.reminders += 1
         elif 21 <= days < 45 and not current:
             tracker.set(row, "Next Action", f"Follow up (applied {days} days ago)")
             report.reminders += 1
+
+
+def check_outreach(gmail, tracker: Tracker, rows: list[Row], root: Path, report) -> None:
+    """Replies and bounces to outreach emails (Feature 7). Never stops the tracker sync."""
+    from .outreach.replies import check_replies
+    from .outreach.sheet import sync_sheet
+    from .outreach.store import Log
+
+    try:
+        log_ = Log.load(root)
+        report.outreach += check_replies(gmail, log_, tracker, rows)
+        sync_sheet(tracker, list(log_.entries.values()))
+    except Exception as exc:
+        log.warning("couldn't check outreach replies: %s", exc)
 
 
 def sync(
@@ -673,6 +693,8 @@ def sync(
             done.add(ref["id"])
             time.sleep(pause)  # stay well under Gmail's per-user rate limit
 
+    if gmail is not None and (root / "data" / "outreach.json").exists():
+        check_outreach(gmail, tracker, rows, root, report)
     apply_reminders(tracker, rows, today or date.today(), report)
     tracker.save(root / "data" / "backups")
     state_path.parent.mkdir(parents=True, exist_ok=True)

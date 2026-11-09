@@ -91,7 +91,8 @@ class FakeGmail:
         self.drafts_ = {}
         self.sent = []
         self.modified = []
-        self.threads_ = {}
+        self.threads_ = {}  # thread id -> [(message id, From header)]
+        self.messages_ = {}  # message id -> {"id", "threadId", "labelIds"}
         self.me = me
         self._next = 0
 
@@ -179,9 +180,11 @@ class _Drafts:
         draft = self.g.drafts_.pop(body["id"], None)
         if draft is None:
             return _Call(NotFound())
-        thread = self.g.new_id("t")
+        thread, mid = self.g.new_id("t"), draft["message"]["id"]
         self.g.sent.append((body["id"], draft))
-        return _Call({"id": draft["message"]["id"], "threadId": thread, "labelIds": ["SENT"]})
+        self.g.threads_[thread] = [(mid, f"Alex Example <{self.g.me}>")]
+        self.g.messages_[mid] = {"id": mid, "threadId": thread, "labelIds": ["SENT"]}
+        return _Call(self.g.messages_[mid])
 
 
 class _Messages:
@@ -191,6 +194,13 @@ class _Messages:
     def modify(self, userId, id, body):
         self.g.modified.append((id, body))
         return _Call({"id": id})
+
+    def list(self, **kw):  # the tracker sync's search for job emails: none here
+        return _Call({"messages": []})
+
+    def get(self, userId, id, format="minimal"):
+        msg = self.g.messages_.get(id)
+        return _Call(msg if msg is not None else NotFound())
 
 
 class _Threads:
