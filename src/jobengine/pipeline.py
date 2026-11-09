@@ -179,7 +179,6 @@ def check_links(result: Result, cfg: Config, root: Path, get=None) -> None:
         say("link check failed (see warning below); keeping every role")
         log.warning("link check failed: %s", exc)
         return
-    say(result.links.summary())
 
 
 def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT, ai: bool = True) -> Result:

@@ -25,14 +25,15 @@ For SMIF members and anyone else on macOS, Windows or Linux with Python 3.10+.
    git clone https://github.com/sling54/finance-internship-engine.git
    cd finance-internship-engine
    python3 -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-   pip install -e ".[gmail,apply]" && playwright install chromium
+   pip install -e ".[gmail,apply,jobspy]" && playwright install chromium
    ```
 2. **Your profile from your resume** (5 min): `jobengine init --resume ~/Documents/Resume.pdf`.
    Press Enter to keep each answer it found; the last question asks what internships you want,
    in plain English.
 3. **First scan** (5 min): `jobengine scan --no-ai`, then `jobengine results` to browse the
    roles it kept.
-4. **Gmail** (10 min, optional): follow [Gmail access](#gmail-access), then `jobengine track`.
+4. **Gmail** (10 min; needed for the tracker and outreach): follow [Gmail access](#gmail-access),
+   then `jobengine track`. Scans and packets work without it.
 5. **Check everything**: `jobengine doctor` says what works and what's left, one line each.
    Then `./scripts/schedule-daily-scan.sh` (Windows: `.\scripts\schedule-daily-scan.ps1`) to
    run it every morning.
@@ -242,6 +243,8 @@ everyone else as test users:
    Each member saves it as `auth/credentials.json` (git-ignored). Share it privately, not in
    the repo.
 4. Run `jobengine track`. A browser opens to sign in; the token is saved in `auth/token.json`.
+
+Step-by-step for the officer, plus a 10-minute demo script: [docs/SMIF-setup.md](docs/SMIF-setup.md).
 
 While the app stays in Testing, Google ends the sign-in after about 7 days; when `track` asks
 again, sign in again. The engine uses the `gmail.modify` scope. It reads job emails, marks
