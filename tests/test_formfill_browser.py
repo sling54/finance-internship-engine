@@ -1,8 +1,6 @@
 """PlaywrightPage against a real (headless) Chromium and a local copy of a form.
 Skipped where Playwright or its browser isn't installed, such as CI."""
 
-from pathlib import Path
-
 import pytest
 
 from jobengine.formfill import PlaywrightPage, fill_form
