@@ -12,6 +12,50 @@ by hand meant checking a dozen sites a day and rereading the same postings.
 **Sample run (Nov 2, 2026), lists only:** 4,321 postings collected from SimplifyJobs and Kadoa →
 156 kept after filtering and de-duplication (22 of the kept roles appeared in both lists and were merged).
 
+After the scan it covers the rest of the search too: an application packet for each role (with
+the form filled in for you to submit), a tracker spreadsheet that updates itself from Gmail, and
+cold outreach drafts to recruiters that go out only after you approve them.
+
+## Quick start (about 30 minutes)
+
+For SMIF members and anyone else on macOS, Windows or Linux with Python 3.10+.
+
+1. **Install** (5 min):
+   ```bash
+   git clone https://github.com/sling54/finance-internship-engine.git
+   cd finance-internship-engine
+   python3 -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+   pip install -e ".[gmail,apply]" && playwright install chromium
+   ```
+2. **Your profile from your resume** (5 min): `jobengine init --resume ~/Documents/Resume.pdf`.
+   Press Enter to keep each answer it found; the last question asks what internships you want,
+   in plain English.
+3. **First scan** (5 min): `jobengine scan --no-ai`, then `jobengine results` to browse the
+   roles it kept.
+4. **Gmail** (10 min, optional): follow [Gmail access](#gmail-access), then `jobengine track`.
+5. **Check everything**: `jobengine doctor` says what works and what's left, one line each.
+   Then `./scripts/schedule-daily-scan.sh` (Windows: `.\scripts\schedule-daily-scan.ps1`) to
+   run it every morning.
+
+Optional parts: a local AI model for fit scores and drafts ([AI fit score](#ai-fit-score)),
+cold outreach ([Cold outreach drafts](#cold-outreach-drafts)), and your own settings for any
+part ([Your own settings](#your-own-settings)).
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `jobengine init --resume PATH` | Set up your profile and tracker from your resume |
+| `jobengine scan` | Collect, filter and score postings into `data/jobs_latest.csv` |
+| `jobengine results` | Browse kept roles; "I applied" and "Closed" buttons |
+| `jobengine packet <role> [--fill]` | Answers for the role's form, and fill it in (you submit) |
+| `jobengine applied <role>` | Record an application yourself |
+| `jobengine track` | Update the tracker from Gmail (statuses, replies, reminders) |
+| `jobengine outreach plan / review / send` | Contacts and drafts, approve, send (max 20 a day) |
+| `jobengine stats [--markdown]` | Scans, applications, response rate, outreach |
+| `jobengine removed` / `restore URL` | Roles you or the engine removed, and bring one back |
+| `jobengine doctor` | Check your setup |
+
 ## How it works
 
 ```mermaid
@@ -183,6 +227,26 @@ the 120-day limit and the closed phrases) are under `link_check:` in `config/sou
 
 If `data/removed.json` is damaged, the scan and results page keep running: a copy is saved
 as `data/removed.json.unreadable-*` and a warning explains what happened.
+
+## Gmail access
+
+`jobengine track`, alert emails and outreach read and write your Gmail through Google's API,
+with your own OAuth client. One person (for SMIF, one officer) can set this up once and add
+everyone else as test users:
+
+1. In [Google Cloud Console](https://console.cloud.google.com), create a project and enable the
+   **Gmail API**.
+2. Under **OAuth consent screen**, choose **External**, leave it in **Testing**, and add each
+   member's Gmail address under **Test users** (Testing allows up to 100).
+3. Under **Credentials**, create an **OAuth client ID** of type **Desktop app** and download it.
+   Each member saves it as `auth/credentials.json` (git-ignored). Share it privately, not in
+   the repo.
+4. Run `jobengine track`. A browser opens to sign in; the token is saved in `auth/token.json`.
+
+While the app stays in Testing, Google ends the sign-in after about 7 days; when `track` asks
+again, sign in again. The engine uses the `gmail.modify` scope. It reads job emails, marks
+job-alert emails as read, writes and labels outreach drafts, and sends only the drafts you
+approved. The only thing it ever deletes is an outreach draft you chose to skip.
 
 ## Tracker that updates itself
 
