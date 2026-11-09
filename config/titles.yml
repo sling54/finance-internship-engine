@@ -67,3 +67,12 @@ exclude:
 # A title counts as an internship if it contains one of these.
 internship_keywords: [intern, internship, "summer analyst", "summer associate", co-op, coop,
                       off-cycle, "insight program", "insight programme", placement]
+
+# Reassign already matched titles to the target track and its location rule.
+reassign:
+  - to: Software engineering
+    when_any: [developer, "software engineer", "systems engineer"]
+    unless_any: [research, researcher, trader]
+
+# Graduate-student-only phrases in titles or normalized URLs.
+graduate_only: ["graduate intern"]

@@ -274,3 +274,154 @@ def test_dedup_keeps_different_roles():
         job("Trading Intern", company="B"),
     ]
     assert len(dedupe(jobs)) == 3
+
+
+@pytest.mark.parametrize(
+    "title,track,priority,rule",
+    [
+        ("Quantitative Developer Internship", "Software engineering", 3, "miami"),
+        ("Quant Developer / Quant Research Intern", "Quant / derivatives", 1, "season"),
+        (
+            "2027 Summer Internship Program – Systematic Trading Technology Software Engineer, New York",
+            "Software engineering",
+            3,
+            "miami",
+        ),
+        ("Quant Trader Intern", "Trading", 1, "season"),
+        ("Quant Systems Engineer Intern", "Software engineering", 3, "miami"),
+        ("Quant Developer Researcher Intern", "Quant / derivatives", 1, "season"),
+        ("Quant Developer Trader Intern", "Trading", 1, "season"),
+        ("Quant Developers Intern", "Quant / derivatives", 1, "season"),
+        ("QUANT DEVELOPER INTERN", "Software engineering", 3, "miami"),
+    ],
+)
+def test_title_reassignment(titles, title, track, priority, rule):
+    posting = job(title)
+    titles(posting)
+    assert (posting.track, posting.priority, titles.location_rule(posting)) == (
+        track,
+        priority,
+        rule,
+    )
+
+
+def test_reassignment_does_not_admit_unmatched_titles(titles):
+    with pytest.raises(Rejected, match="no matching track"):
+        titles(job("Systems Engineer Intern"))
+
+
+def test_reassignment_requires_known_target(cfg):
+    from jobengine.filters.titles import TitleFilter
+
+    config = dict(cfg.titles, reassign=[{"to": "Missing", "when_any": ["developer"]}])
+    with pytest.raises(ValueError, match="unknown reassignment track: Missing"):
+        TitleFilter(config)
+
+
+@pytest.mark.parametrize(
+    "title,url",
+    [
+        ("Quant Graduate Intern", "https://example.com/role"),
+        (
+            "Quantitative Risk Management Intern",
+            "https://freddiemac.wd5.myworkdayjobs.com/External/job/McLean-VA/"
+            "Risk-Management-Graduate-Intern---Quantitative-Summer-2027_JR17553",
+        ),
+        ("Quant Intern", "https://example.com/GRADUATE_INTERN"),
+    ],
+)
+def test_graduate_only_rejection(titles, title, url):
+    with pytest.raises(Rejected, match="(?i)graduate-only role: graduate intern"):
+        titles(job(title, url=url))
+
+
+@pytest.mark.parametrize("phrase", ["Undergraduate Intern", "Undergraduate-Intern"])
+def test_undergraduate_is_not_graduate_only(titles, phrase):
+    titles(job(f"Quant {phrase}", url=f"https://example.com/{phrase}"))
+
+
+def test_exact_url_dedup_merges_all_metadata():
+    url = "https://example.com/job?id=1"
+    preferred = job("Quant Intern", source="greenhouse", url=url, locations=["Miami"])
+    other = job(
+        "Trading Internship",
+        company="Other",
+        source="simplify",
+        url=url,
+        locations=["Miami", "New York"],
+        description="Details",
+        date_posted="2026-11-01",
+        salary="$50",
+        terms=["Summer 2027"],
+        degrees=["Bachelor's"],
+        is_internship=True,
+    )
+    assert dedupe([other, preferred]) == [preferred]
+    assert preferred.sources == ["greenhouse", "simplify"]
+    assert preferred.locations == ["Miami", "New York"]
+    for attr in ("description", "date_posted", "salary", "terms", "degrees", "is_internship"):
+        assert getattr(preferred, attr) == getattr(other, attr)
+
+
+def test_query_strings_are_distinct_urls():
+    a = job(
+        "Quant Research Intern",
+        company="Point72",
+        url="https://careers.point72.com/CSJobDetail?jobName=a&jobCode=1",
+    )
+    b = job(
+        "Quant Trading Intern",
+        company="Point72",
+        url="https://careers.point72.com/CSJobDetail?jobName=b&jobCode=2",
+    )
+    assert dedupe([a, b]) == [a, b]
+
+
+def test_empty_urls_do_not_merge_different_keys():
+    assert len(dedupe([job("Trading Intern", url=""), job("Quant Intern", url="")])) == 2
+
+
+def test_dedup_never_chains_two_jobs_together():
+    a = job("Trading Intern", source="greenhouse", url="https://example.com/a")
+    b = job("Quant Intern", source="lever", url="https://example.com/b")
+    # Same title as a, same URL as b: the exact URL wins, and a and b stay separate.
+    bridge = job("Trading Intern", source="simplify", url=b.url)
+    assert dedupe([a, b, bridge]) == [a, b]
+    assert a.sources == ["greenhouse"]
+    assert b.sources == ["lever", "simplify"]
+
+
+def test_dedup_keeps_same_titled_roles_in_two_cities_apart():
+    # Real Brevan Howard case: Simplify titles both roles "Trading Intern", Kadoa names the
+    # city. Each Simplify row must join its own Kadoa row by URL, not merge across cities.
+    ny = "https://wd3.myworkdaysite.com/recruiting/brevanhoward/x/job/New-York/Trading_JR101583"
+    ldn = "https://wd3.myworkdaysite.com/recruiting/brevanhoward/x/job/London/Trading_JR101584"
+    rows = [
+        job("Trading Intern - Trading", "Brevan Howard", ["NYC"], "simplify", url=ny),
+        job("Trading Intern", "Brevan Howard", ["London, UK"], "simplify", url=ldn),
+        job(
+            "2027 Summer Internship Program – Trading, London",
+            "Brevan Howard",
+            ["London"],
+            "kadoa",
+            url=ldn,
+        ),
+        job(
+            "2027 Summer Internship Program – Trading, New York",
+            "Brevan Howard",
+            ["New York"],
+            "kadoa",
+            url=ny,
+        ),
+    ]
+    merged = dedupe(rows)
+    assert sorted(j.url for j in merged) == sorted([ny, ldn])
+    by_url = {j.url: j for j in merged}
+    assert by_url[ny].locations == ["New York", "NYC"]
+    assert by_url[ldn].locations == ["London", "London, UK"]
+    assert by_url[ny].sources == by_url[ldn].sources == ["kadoa", "simplify"]
+
+
+def test_job_helper_urls_are_unique_and_overridable():
+    assert job().url != job().url
+    assert job(url="https://example.com/custom").url == "https://example.com/custom"
