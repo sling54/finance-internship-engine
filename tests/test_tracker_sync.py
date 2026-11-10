@@ -266,6 +266,20 @@ def test_sync_saves_progress_when_gmail_stops_answering(tmp_path):
     assert ws.cell(7, header.index("App Status") + 1).value == "Rejected"  # saved despite the stop
 
 
+def test_sync_survives_gmail_list_timeout(tmp_path):
+    path = tmp_path / "ApplicationTracker.xlsx"
+    make_tracker(path)
+    gmail = FakeGmail([])
+
+    def list_(**kw):
+        gmail._result = TimeoutError("The read operation timed out")
+        return gmail
+
+    gmail.list = list_
+    report = sync({}, path, tmp_path, today=date(2026, 11, 2), gmail=gmail, pause=0)
+    assert report.emails == 0  # no crash; nothing read this run
+
+
 # ---------- adding applications the tracker doesn't have yet ----------
 
 from jobengine.cli import find_jobs  # noqa: E402
