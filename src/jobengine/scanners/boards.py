@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import random
+import threading
 import time
 
 from ..models import Posting
@@ -55,8 +56,34 @@ class _BlockWatcher(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         msg = record.getMessage().lower()
-        if "429" in msg or "blocked" in msg:
+        if "429" in msg or "blocked" in msg or "timed out" in msg:
             self.blocked = True
+
+
+class CallTimeout(Exception):
+    pass
+
+
+def _with_deadline(seconds: float, fn, **kwargs):
+    """Run fn in a daemon thread; raise CallTimeout if it hasn't finished in time.
+
+    A daemon thread, unlike ThreadPoolExecutor, doesn't hold up exit while a call hangs."""
+    box: dict = {}
+
+    def run():
+        try:
+            box["value"] = fn(**kwargs)
+        except Exception as exc:  # handed back to the caller below
+            box["error"] = exc
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise CallTimeout(f"no answer in {seconds}s")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 # Sites where JobSpy can't combine hours_old with job_type; the search terms say "intern" instead.
@@ -82,7 +109,11 @@ def scan(settings: dict, pause_seconds: tuple[float, float] = (3.0, 7.0)) -> lis
                         break
                     watcher.blocked = False
                     try:
-                        df = scrape_jobs(
+                        # JobSpy has no overall timeout: on Nov 9 one ZipRecruiter call hung
+                        # 12 minutes. Give each call a deadline and skip the site when it's hit.
+                        df = _with_deadline(
+                            settings.get("call_timeout_seconds", 120),
+                            scrape_jobs,
                             site_name=[site],
                             search_term=term,
                             google_search_term=f"{term} near {run['location']} since yesterday",
@@ -96,6 +127,9 @@ def scan(settings: dict, pause_seconds: tuple[float, float] = (3.0, 7.0)) -> lis
                         found = parse_jobspy_records(df.to_dict("records"))
                         log.info("jobspy %s '%s': %d postings", site, term, len(found))
                         jobs.extend(found)
+                    except CallTimeout:
+                        log.warning("jobspy %s '%s' took too long; giving up on it", site, term)
+                        watcher.blocked = True
                     except Exception as exc:
                         log.warning("jobspy %s '%s' failed: %s", site, term, exc)
                         watcher.blocked = True
