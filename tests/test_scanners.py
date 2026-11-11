@@ -159,3 +159,39 @@ def test_jobspy_stops_a_site_after_it_blocks(monkeypatch):
     assert [c[0] for c in calls].count("linkedin") == 1  # blocked after the first call
     assert [c for c in calls if c[0] == "linkedin"][0][2] is None  # no job_type on LinkedIn
     assert len(jobs) == 2 and all(j.source == "jobspy:zip_recruiter" for j in jobs)
+
+
+def test_jobspy_gives_up_on_a_site_that_hangs(monkeypatch):
+    import sys
+    import threading
+    import types
+
+    from jobengine.scanners import boards
+
+    release = threading.Event()
+    calls = []
+
+    def fake_scrape_jobs(site_name, search_term, **kw):
+        site = site_name[0]
+        calls.append(site)
+        if site == "zip_recruiter":
+            release.wait(5)  # hangs past the deadline
+            return _Frame([])
+        row = {
+            "site": site,
+            "title": "Intern",
+            "company": "Acme",
+            "job_url": f"https://x/{site}/{search_term}",
+        }
+        return _Frame([row])
+
+    monkeypatch.setitem(sys.modules, "jobspy", types.SimpleNamespace(scrape_jobs=fake_scrape_jobs))
+    settings = {
+        "sites": ["zip_recruiter", "indeed"],
+        "call_timeout_seconds": 0.2,
+        "passes": [{"location": "United States", "terms": ["a", "b"]}],
+    }
+    jobs = boards.scan(settings, pause_seconds=(0, 0))
+    release.set()
+    assert calls.count("zip_recruiter") == 1  # skipped after the first hang
+    assert len(jobs) == 2 and all(j.source == "jobspy:indeed" for j in jobs)
