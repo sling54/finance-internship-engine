@@ -265,8 +265,23 @@ About me:
 def draft_answer(client, question: str, packet: Packet, about: str, words: int) -> str:
     if client is None:
         return ""
+    prompt = answer_prompt(question, packet, about, words)
     try:
-        reply = client.chat(ANSWER_SYSTEM, answer_prompt(question, packet, about, words))
+        try:
+            reply = client.chat(ANSWER_SYSTEM, prompt)
+        except ValueError as exc:
+            # Qwen 3.6 sometimes thinks despite /no_think and runs out of tokens (Nov 11:
+            # "Why are you interested in this role?" was left blank on 2 of 4 packets).
+            # One more try with twice the room lets it finish thinking and answer.
+            limit = getattr(client, "max_tokens", None)
+            if not limit or "max_tokens" not in str(exc):
+                raise
+            log.info("the local model ran out of room on %r; trying again with more", question)
+            client.max_tokens = limit * 2
+            try:
+                reply = client.chat(ANSWER_SYSTEM, prompt)
+            finally:
+                client.max_tokens = limit
     except Exception as exc:
         log.info("the local model couldn't draft %r: %s", question, exc)
         return ""

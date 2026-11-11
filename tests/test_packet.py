@@ -254,6 +254,28 @@ def test_bad_ai_draft_is_dropped(root):
     assert (why.answer, why.source) == ("", "you")
 
 
+class ThinkingModel:
+    """Runs out of tokens while thinking unless given more than its first budget."""
+
+    def __init__(self, reply):
+        self.reply, self.max_tokens, self.budgets = reply, 4096, []
+
+    def chat(self, system, user):
+        self.budgets.append(self.max_tokens)
+        if self.max_tokens <= 4096:
+            raise ValueError("the model was still thinking when it hit max_tokens (4096)")
+        return self.reply
+
+
+def test_ai_draft_retries_with_more_tokens_when_the_model_overthinks(root):
+    model = ThinkingModel("Your options desk fits my finance studies and trading club work.")
+    row = {"company": "Sample Markets", "title": "Quant Intern", "url": "https://jobs.lever.co/s/a"}
+    packet = build(row, PROFILE, SETTINGS, root, model, fake_get())
+    why = next(f for f in packet.fields if f.label.startswith("Why"))
+    assert why.source == "ai" and why.answer.startswith("Your options desk")
+    assert model.budgets[:2] == [4096, 8192] and model.max_tokens == 4096  # budget restored
+
+
 def test_other_boards_get_standard_fields_and_lever_apply_link(root):
     row = {
         "company": "Sample Markets",
