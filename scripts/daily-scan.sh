@@ -6,8 +6,30 @@ cd "$(dirname "$0")/.." || exit 1
 mkdir -p logs
 LOG="logs/scan_$(date +%F).log"
 
+# Make sure LM Studio's server is up so the scan gets AI fit scores (on Nov 8-9 the 7:35 am
+# scan ran with LM Studio closed and skipped scoring). Harmless if LM Studio isn't installed.
+start_lm_studio() {
+  local LMS
+  LMS=$(command -v lms || echo "$HOME/.lmstudio/bin/lms")
+  [ -x "$LMS" ] || { echo "LM Studio CLI (lms) not found; scan runs without AI scores"; return; }
+  "$LMS" server start >/dev/null 2>&1
+  # Load the model named in config/scoring.yml unless a model is already loaded.
+  local MODEL
+  MODEL=$(sed -n 's/^ *model: *\([^ #]*\).*/\1/p' config/scoring.yml | head -1)
+  if [ -n "$MODEL" ] && ! "$LMS" ps 2>/dev/null | grep -qi "$MODEL"; then
+    "$LMS" load "$MODEL" -y >/dev/null 2>&1 || echo "Couldn't load $MODEL in LM Studio"
+  fi
+}
+
+# Keep the Mac awake until the scan is done: on Nov 10 and 11 the 7:30 am scan took 7-9 hours
+# because the Mac slept partway through. caffeinate -i -w waits for this script to finish.
+if command -v caffeinate >/dev/null; then
+  caffeinate -i -w $$ &
+fi
+
 {
   echo "=== scan started $(date) ==="
+  start_lm_studio
   .venv/bin/jobengine scan
   echo "=== scan finished $(date) (exit $?) ==="
   .venv/bin/jobengine track
