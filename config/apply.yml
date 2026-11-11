@@ -8,7 +8,8 @@ default_questions:
   - Why do you want to work at this firm?
 
 # Fixed answers for common form questions. Matched against the question's label.
-how_did_you_hear: Company website
+how_did_you_hear: Company website     # also "How were you referred to us?"
+preferred_contact_method: Email      # "Preferred contact method?"
 # EEO questions (gender, race, veteran, disability) are answered with the first option
 # containing one of these phrases, or left for you if there's none.
 decline_phrases: ["decline", "prefer not", "don't wish", "do not wish", "not to answer"]

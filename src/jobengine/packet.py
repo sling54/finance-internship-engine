@@ -206,15 +206,17 @@ def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[
     elif has("authorized", "authorised", "eligible", "legally"):
         if is_free:
             found = "Yes"
-    elif has("hear", "referral source"):
+    elif has("hear", "referral source", "referred", "how did you find", "where did you find"):
         found = settings.get("how_did_you_hear", "")
+    elif has("contact method", "preferred method of contact"):
+        found = settings.get("preferred_contact_method", "Email")
     elif has("school", "university", "college", "institution"):
         found = profile.get("school", "")
     elif has("degree"):
         found = DEGREE_NAMES.get(profile.get("degree", ""), profile.get("degree", ""))
     elif has("discipline", "major", "field of study", "concentration"):
         found = profile.get("major", "")
-    elif has("gpa", "grade point"):
+    elif has("gpa", "cgpa", "grade point"):
         found = str(profile.get("gpa", "") or "")
     elif has("graduation", "grad date"):
         found = _graduation(profile.get("graduation", ""))

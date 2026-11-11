@@ -162,6 +162,11 @@ def test_rule_answers_from_the_profile(root):
     assert ans("GPA") == ("3.5", "profile")
     assert ans("Expected Graduation Date") == ("December 2027", "profile")
     assert ans("How did you hear about this job?") == ("Company website", "profile")
+    # Labels seen on real Greenhouse forms (SESCO, Graviton) on Nov 11, 2026
+    assert ans("CGPA") == ("3.5", "profile")
+    assert ans("How were you referred to us?") == ("Company website", "profile")
+    assert ans("Preferred contact method?") == ("Email", "profile")
+    assert ans("Preferred contact method?", "select", ["Phone", "Email"]) == ("Email", "rule")
     resume = root / PROFILE["resume_path"]
     assert ans("Resume/CV", "file", resume=resume) == (str(resume), "profile")
     assert ans("Cover Letter", "file", resume=resume) == ("", "you")
