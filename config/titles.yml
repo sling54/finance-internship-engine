@@ -16,7 +16,9 @@ tracks:
     location_rule: season
     keywords: ["investment analyst", investments, investment, "portfolio management", "asset management",
                "investment research", "equity research", "research analyst", "family office",
-               "hedge fund", "credit analyst", "fixed income"]
+               "hedge fund", "credit analyst", "fixed income", "equity analyst", "sector analyst",
+               "macro analyst", "fundamental research", "fundamental researcher", economist,
+               "economic research"]
   - name: Data analytics
     priority: 2
     location_rule: miami         # Miami area in every season
@@ -63,6 +65,7 @@ exclude:
   - webinar
   - info session
   - information session
+  - digital image  # "Digital Image Asset Management" is media archiving, not investing
 
 # A title counts as an internship if it contains one of these.
 internship_keywords: [intern, internship, "summer analyst", "summer associate", co-op, coop,

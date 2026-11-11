@@ -165,6 +165,18 @@ def test_keeps_valid_term_among_old_ones(season):
     assert j.terms == ["Summer 2027"]
 
 
+def test_list_term_older_than_the_posting_is_ignored(season):
+    # SimplifyJobs labeled Citadel's July 2026 evergreen intern post "Summer 2026".
+    j = job("Quantitative Trader - Intern (US)", terms=["Summer 2026"], date_posted="2026-07-06")
+    season(j)
+    assert (j.season, j.terms) == ("Summer", []) and "check term" in j.flags
+
+
+def test_list_term_newer_than_the_posting_still_counts(season):
+    with pytest.raises(Rejected, match="already started or over"):
+        season(job("Trading Intern", terms=["Summer 2026"], date_posted="2025-08-01"))
+
+
 # ---------- Feature 4: location (the five cases from the action plan, plus more) ----------
 
 

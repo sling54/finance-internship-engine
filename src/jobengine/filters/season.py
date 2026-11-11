@@ -89,6 +89,23 @@ def detect_season(job: Posting) -> str:
     return "Unknown"
 
 
+def _drop_stale_list_terms(job: Posting) -> list[tuple[str, int]]:
+    """Remove source-list terms that had already started when the role was posted; return them."""
+    posted = re.match(r"(20\d\d)-(\d\d)", job.date_posted or "")
+    if not posted or not job.terms:
+        return []
+    when = (int(posted.group(1)), int(posted.group(2)))
+    kept, stale = [], []
+    for text in job.terms:
+        found = [(_NAMES[m.group(1).lower()], _year(m.group(2))) for m in _TERM.finditer(text)]
+        if found and all((y, _START_MONTH[s]) < when for s, y in found):
+            stale += found
+        else:
+            kept.append(text)
+    job.terms = kept
+    return stale
+
+
 class SeasonFilter:
     def __init__(self, profile: dict, today: date | None = None):
         grad = str(profile.get("graduation", "2027-12"))
@@ -96,7 +113,15 @@ class SeasonFilter:
         self.today = today or date.today()
 
     def __call__(self, job: Posting) -> None:
+        stale = _drop_stale_list_terms(job)
         terms = explicit_terms(job)
+        if stale and not terms:
+            # The list's term is older than the posting itself, so it's a stale label
+            # (SimplifyJobs kept "Summer 2026" on Citadel's evergreen intern posts from July
+            # 2026). Keep the season, not the year, and ask to check it.
+            job.season = stale[0][0]
+            job.flags.append("check term")
+            return
         if terms:
             valid = [t for t in terms if self._term_ok(*t)]
             if not valid:
