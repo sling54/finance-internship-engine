@@ -65,6 +65,23 @@ class Result:
         return "\n".join(lines)
 
 
+# Sources that answer in seconds get retried after a pause: on Nov 10 and 11 a single dropped
+# connection lost the whole Kadoa list, then the whole SimplifyJobs list (3,900 postings).
+RETRIED = {"simplify", "kadoa", "alert_emails"}
+RETRY_PAUSES = (10, 30)
+
+
+def _with_retries(name: str, run):
+    pauses = RETRY_PAUSES if name in RETRIED else ()
+    for pause in pauses:
+        try:
+            return run()
+        except Exception as exc:
+            log.warning("source %s failed (%s); trying again in %ss", name, exc, pause)
+            time.sleep(pause)
+    return run()
+
+
 def collect(cfg: Config, only: set[str] | None = None, root: Path = ROOT) -> list[Posting]:
     src = cfg.sources
     steps = {
@@ -82,7 +99,7 @@ def collect(cfg: Config, only: set[str] | None = None, root: Path = ROOT) -> lis
         say(f"Collecting from {NAMES.get(name, name)}...", end=" ")
         start = time.monotonic()
         try:
-            found = run()
+            found = _with_retries(name, run)
             log.info("%s: %d postings", name, len(found))
             jobs.extend(found)
             say(f"{len(found):,} postings ({time.monotonic() - start:.0f}s)")

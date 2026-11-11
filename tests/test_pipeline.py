@@ -56,3 +56,21 @@ def test_new_flag_and_csv(cfg, tmp_path):
     assert out.read_bytes().startswith(b"\xef\xbb\xbf")  # UTF-8 marker for Excel/Numbers
     rows = list(csv.DictReader(out.open(encoding="utf-8-sig")))
     assert rows and rows[0]["company"] and rows[0]["url"].startswith("https://")
+
+
+def test_collect_retries_a_list_source_that_drops_once(cfg, tmp_path, monkeypatch):
+    from jobengine import pipeline
+    from jobengine.scanners import lists
+
+    calls = []
+
+    def flaky(settings):
+        calls.append(1)
+        if len(calls) == 1:
+            raise ConnectionResetError("Connection reset by peer")
+        return parse_simplify(load_fixture("simplify.json"))
+
+    monkeypatch.setattr(lists, "scan_simplify", flaky)
+    monkeypatch.setattr(pipeline, "RETRY_PAUSES", (0, 0))
+    jobs = pipeline.collect(cfg, only={"simplify"}, root=tmp_path)
+    assert len(calls) == 2 and jobs  # second try succeeded
