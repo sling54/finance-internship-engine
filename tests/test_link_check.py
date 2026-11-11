@@ -249,18 +249,24 @@ def test_host_pacer_spaces_one_host_only():
     assert slept == [2.0, 4.0]
 
 
-def test_per_host_pacing_with_threads(tmp_path):
+def test_per_host_pacing_with_threads(tmp_path, monkeypatch):
+    # Checks only things a busy machine can't break: a thread delayed between its wait and
+    # its request made the old timestamp check fail on Amir's Mac though pacing was right.
     urls = [f"https://slow.example.com/jobs/{i}" for i in range(4)]
-    stamps = []
+    pacers = []
+    original = link_check.HostPacer.__init__
 
-    def get(url):
-        stamps.append(time.monotonic())
-        return Resp(200, url=url, text="ok")
+    def init(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        pacers.append(self)
 
+    monkeypatch.setattr(link_check.HostPacer, "__init__", init)
     cfg = {**SETTINGS, "per_host_seconds": 0.05, "concurrency": 4}
-    link_check.check_all(urls, cfg, tmp_path, get)
-    stamps.sort()
-    assert all(b - a >= 0.04 for a, b in zip(stamps, stamps[1:], strict=False))
+    start = time.monotonic()
+    link_check.check_all(urls, cfg, tmp_path, lambda url: Resp(200, url=url, text="ok"))
+    assert time.monotonic() - start >= 0.149  # the 4th request waits 3 gaps for its slot
+    (pacer,) = pacers
+    assert pacer.next_slot["slow.example.com"] - start >= 0.199  # 4 slots handed out
 
 
 def test_results_are_cached_for_a_day(tmp_path):
