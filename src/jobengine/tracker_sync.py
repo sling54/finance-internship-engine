@@ -651,12 +651,18 @@ def sync(
         query = f"newer_than:{days}d -label:{settings.get('gmail_label', 'job-alerts')} {SEARCH}"
         refs, token = [], None
         while len(refs) < 500:
-            page = (
-                gmail.users()
-                .messages()
-                .list(userId="me", q=query, pageToken=token, maxResults=100)
-                .execute()
-            )
+            try:
+                # A slow Gmail answer (read timeout) used to crash `track`; retry, then go on
+                # with the emails listed so far so the tracker and Review fixes still get saved.
+                page = (
+                    gmail.users()
+                    .messages()
+                    .list(userId="me", q=query, pageToken=token, maxResults=100)
+                    .execute(num_retries=6)
+                )
+            except Exception as exc:
+                log.warning("Gmail didn't list new emails (%s); trying again next run", exc)
+                break
             refs += page.get("messages", [])
             token = page.get("nextPageToken")
             if not token:
