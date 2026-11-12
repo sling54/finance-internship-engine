@@ -34,8 +34,9 @@ tracks:
     keywords: ["wealth management", "private wealth", "private bank", "private banking"]
 
 # Titles like "Summer Analyst" with no division: kept for the scorer to judge from the description.
-ambiguous_keywords: ["summer analyst", "summer associate", "finance intern", "financial analyst intern",
-                     "investment intern"]
+# "Finance Intern" and "Financial Analyst Intern" are left out: they are corporate finance
+# (FP&A) roles, which don't lead to quant trading (Amir, Nov 12).
+ambiguous_keywords: ["summer analyst", "summer associate", "investment intern"]
 # ...unless the title names a non-finance division.
 ambiguous_exclude: [technology, operations, engineering, software, developer, it, compliance, legal,
                     sales, hr, supply chain, procurement, marketing, business development]
@@ -67,6 +68,10 @@ exclude:
   - information session
   - operations    # ops and sales internships aren't wanted (Amir, Nov 11)
   - sales
+  - corporate finance    # corporate finance / FP&A roles aren't wanted (Amir, Nov 12)
+  - fp&a
+  - financial planning
+  - corporate development
   - digital image  # "Digital Image Asset Management" is media archiving, not investing
 
 # A title counts as an internship if it contains one of these.
