@@ -89,18 +89,66 @@ class PlaywrightPage(FormPage):
         found = self._one(self.page.locator(selector))
         if not found:
             return False
+        if self._shows(found, option):
+            return True
 
-        def take():
+        def typed():  # searchable dropdowns: type the option, Tab takes the match
             found.fill(option)
             self.page.wait_for_timeout(500)  # let the menu filter to the option
             found.press("Tab")  # react-select takes the highlighted option on Tab, never Enter
             self.page.wait_for_timeout(200)
 
-        if not self._try(take):
-            return False
-        try:  # check the dropdown now shows the option
+        try:
+            editable = found.is_editable()
+        except Exception:
+            editable = False
+        if editable and self._try(typed) and self._shows(found, option):
+            return True
+        # Read-only dropdowns (Greenhouse's Yes/No questions) can't be typed into: open the
+        # menu with ArrowDown, walk it until the option is highlighted, take it with Tab.
+        return self._try(lambda: self._walk_menu(found, option)) and self._shows(found, option)
+
+    def _walk_menu(self, found, option):
+        want = option.strip().lower()
+        found.focus()
+        found.press("ArrowDown")
+        self.page.wait_for_timeout(300)
+        seen = set()
+        for _ in range(80):
+            current = self._highlighted(found)
+            if current.lower() == want:
+                found.press("Tab")
+                self.page.wait_for_timeout(200)
+                return
+            if not current or current in seen:
+                break  # menu didn't open, or it wrapped around without the option
+            seen.add(current)
+            found.press("ArrowDown")
+            self.page.wait_for_timeout(50)
+        found.press("Escape")
+        raise LookupError(f"option {option!r} isn't in the dropdown")
+
+    @staticmethod
+    def _highlighted(found) -> str:
+        """Text of the highlighted menu option ('' if the menu is closed)."""
+        return found.evaluate(
+            """box => {
+              const id = box.getAttribute("aria-activedescendant");
+              const el = (id && document.getElementById(id))
+                || document.querySelector('[class*="option--is-focused"]');
+              return el ? el.textContent.trim() : "";
+            }"""
+        )
+
+    @staticmethod
+    def _shows(found, option) -> bool:
+        """The dropdown's box shows exactly this option (one value per line)."""
+        try:
             control = found.locator('xpath=ancestor::div[contains(@class, "control")][1]')
-            return bool(control.count()) and option.lower() in control.inner_text().lower()
+            if not control.count():
+                return False
+            shown = [line.strip().lower() for line in control.inner_text().splitlines()]
+            return option.strip().lower() in shown
         except Exception:
             return False
 

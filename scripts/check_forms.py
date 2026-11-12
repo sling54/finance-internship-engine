@@ -16,6 +16,14 @@ from pathlib import Path
 from jobengine.formfill import PlaywrightPage, fill_form
 from jobengine.packet import load
 
+EMPTY_DROPDOWNS = """() => [...document.querySelectorAll('input[role="combobox"]')].map(box => {
+  const control = box.closest('[class*="control"]');
+  const shown = control ? control.innerText.trim() : "";
+  const label = box.id && document.querySelector(`label[for="${box.id}"]`);
+  return {id: box.id, label: label ? label.innerText.trim() : "", shown,
+          readonly: box.readOnly};
+}).filter(d => !d.shown || /^select/i.test(d.shown))"""
+
 
 def check(folders: list[Path], out: Path) -> list[str]:
     from playwright.sync_api import sync_playwright
@@ -37,6 +45,11 @@ def check(folders: list[Path], out: Path) -> list[str]:
                     f"{len(report.filled)} filled, {len(report.missed)} missed "
                     f"({'; '.join(report.missed) or '-'}), {len(report.yours)} left for you"
                 )
+                for d in page.evaluate(EMPTY_DROPDOWNS):  # still on "Select...": why?
+                    lines.append(
+                        f"           dropdown still empty: id={d['id']!r} label={d['label']!r}"
+                        f"{' (read-only)' if d['readonly'] else ''}"
+                    )
             except Exception as exc:
                 lines.append(f"{packet.board:<10} {packet.company} - {packet.title}: ERROR {exc}")
             finally:
