@@ -604,3 +604,23 @@ def test_cached_closed_without_evidence_is_checked_again(tmp_path):
     get = fake({PAGE: Resp(200, text="ok")})
     assert link_check.check_all([PAGE], SETTINGS, tmp_path, get, now)[PAGE].status == OPEN
     assert get.calls == [PAGE]
+
+
+def test_site_that_blocks_the_checker_never_drops_an_old_role(tmp_path):
+    # citadel.com answers scripts with 403, so its evergreen intern posts (first posted
+    # well over 120 days ago) were dropped as "unverified and old" on Nov 11.
+    today = date(2026, 11, 11)
+    citadel = job(
+        "Quantitative Research Analyst - Intern (US)",
+        "https://www.citadel.com/careers/details/quantitative-research-analyst-intern-us/",
+        date_posted="2026-05-01",
+    )
+    old_timeout = job("Old Intern", "https://x.example.com/jobs/9", date_posted="2026-05-01")
+    get = fake({citadel.url: Resp(403), old_timeout.url: TimeoutError()})
+    result = _result(citadel, old_timeout)
+    report = link_check.apply(result, SETTINGS, tmp_path, get, today)
+
+    assert [j.title for j in result.kept] == ["Quantitative Research Analyst - Intern (US)"]
+    assert citadel.flags == ["not verified", "site blocks the link check"]
+    assert (report.unknown, report.too_old) == (2, 1)
+    assert status(citadel.url, {citadel.url: Resp(401)}).status == UNKNOWN
