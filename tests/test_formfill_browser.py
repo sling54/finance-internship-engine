@@ -86,3 +86,45 @@ def test_real_browser_picks_a_combobox_option_without_submitting(page, tmp_path)
     assert not form.pick('input[role="combobox"][id="question_7"]', "Fax")
     assert not form.pick('input[role="combobox"][id="nope"]', "Email")
     assert page.title() != "SUBMITTED"
+
+
+READONLY_COMBO = """<!doctype html><form>
+<div class="select__control"><div class="value">Select...</div>
+<input id="question_8" role="combobox" class="select__input" readonly inputmode="none"></div>
+<div id="menu"></div>
+<button type="submit">Submit</button>
+</form><script>
+// Like Greenhouse's read-only react-select: typing does nothing, ArrowDown opens the menu
+// and moves the highlight, Tab takes the highlighted option, Enter would submit.
+document.forms[0].onsubmit = () => { document.title = "SUBMITTED"; return false; };
+const box = document.getElementById("question_8"), menu = document.getElementById("menu");
+const options = ["Not sure", "Yes", "No"];
+let at = -1;
+function draw() {
+  menu.innerHTML = options.map((o, i) =>
+    `<div id="opt-${i}" class="select__option${i === at ? " select__option--is-focused" : ""}">${o}</div>`
+  ).join("");
+  box.setAttribute("aria-activedescendant", at < 0 ? "" : `opt-${at}`);
+}
+box.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") { at = (at + 1) % options.length; draw(); }
+  if (e.key === "Escape") { at = -1; menu.innerHTML = ""; }
+  if (e.key === "Tab" && at >= 0) {
+    document.querySelector(".value").textContent = options[at]; at = -1; menu.innerHTML = "";
+  }
+});
+</script>"""
+
+
+def test_real_browser_picks_from_a_read_only_dropdown_with_the_keyboard(page, tmp_path):
+    html = tmp_path / "readonly.html"
+    html.write_text(READONLY_COMBO)
+    page.goto(html.as_uri())
+    form = PlaywrightPage(page)
+    assert form.pick('input[role="combobox"][id="question_8"]', "No")
+    assert page.inner_text(".value") == "No"  # not "Not sure", which also starts with "No"
+    assert form.pick('input[role="combobox"][id="question_8"]', "Yes")
+    assert page.inner_text(".value") == "Yes"
+    assert not form.pick('input[role="combobox"][id="question_8"]', "Maybe")
+    assert page.inner_text(".value") == "Yes"
+    assert page.title() != "SUBMITTED"
