@@ -27,7 +27,10 @@ tracks:
     priority: 3
     location_rule: season
     keywords: ["software engineer", "software engineering", "software developer", "python developer",
-               "quant developer", "quantitative developer"]
+               "quant developer", "quantitative developer", "software development", developer,
+               "full stack", "full-stack", fullstack, "frontend engineer", "front-end engineer",
+               "front end engineer", "backend engineer", "back-end engineer", "back end engineer",
+               "sw engineer"]
   - name: Wealth management
     priority: 3
     location_rule: season
