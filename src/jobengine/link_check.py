@@ -12,6 +12,7 @@ flag, unless they are older than max_unknown_age_days.
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -26,7 +27,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from . import removed
+from .filters.season import detect_season
 from .http import USER_AGENT
+from .models import Posting
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +69,28 @@ class Check:
     detail: str = ""
     flag: str = ""
     evidence: str = ""  # for closed: the URL that answered and how, so it can be audited
+    season: str = ""  # read from the open posting's text, for roles whose list gave no term
+
+
+def _strings(obj) -> list[str]:
+    if isinstance(obj, str):
+        return [obj]
+    if isinstance(obj, dict):
+        return [s for v in obj.values() for s in _strings(v)]
+    if isinstance(obj, list):
+        return [s for v in obj for s in _strings(v)]
+    return []
+
+
+def season_of(data) -> str:
+    """The season a posting's text states ("Summer 2027", "starting June 7th"), or ""."""
+    text = visible_text(html.unescape("\n".join(_strings(data))))
+    found = detect_season(Posting("", "", "", "", description=text))
+    return "" if found == "Unknown" else found
+
+
+def _open(detail: str, data) -> Check:
+    return Check(OPEN, detail, season=season_of(data))
 
 
 # ---------- fetching ----------
@@ -143,7 +168,7 @@ def check_greenhouse(url, get, board: str = ""):
     if parts.hostname in GREENHOUSE_HOSTS and len(seg) >= 3 and seg[1] == "jobs":
         if seg[2].isdigit():
             resp = get(f"https://boards-api.greenhouse.io/v1/boards/{seg[0]}/jobs/{seg[2]}")
-            return _api_status(resp, "Greenhouse") or Check(OPEN, "listed on Greenhouse")
+            return _api_status(resp, "Greenhouse") or _open("listed on Greenhouse", _json(resp))
     # Firms that show Greenhouse jobs on their own site link with ?gh_jid=<id>, and those
     # pages can break while the job stays open (a real GSA case), so the page is not asked.
     job_id = query.get("gh_jid", [""])[0]
@@ -153,7 +178,7 @@ def check_greenhouse(url, get, board: str = ""):
         return None
     if board:  # the board the scan found the job on: its job API is a clear answer
         resp = get(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{job_id}")
-        return _api_status(resp, "Greenhouse") or Check(OPEN, "listed on Greenhouse")
+        return _api_status(resp, "Greenhouse") or _open("listed on Greenhouse", _json(resp))
     # Without the board, only the embed page is left. It loads for an open job, but firms
     # can turn embedding off (Jane Street does), so its 404 proves nothing.
     resp = get(f"https://boards.greenhouse.io/embed/job_app?token={job_id}")
@@ -169,7 +194,7 @@ def check_lever(url, get):
     if not api or len(seg) < 2:
         return None
     resp = get(f"https://{api}/v0/postings/{seg[0]}/{seg[1]}")
-    return _api_status(resp, "Lever") or Check(OPEN, "listed on Lever")
+    return _api_status(resp, "Lever") or _open("listed on Lever", _json(resp))
 
 
 def check_ashby(url, get, boards: dict | None = None):
@@ -183,8 +208,9 @@ def check_ashby(url, get, boards: dict | None = None):
     data = _json(resp)
     if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
         return Check(UNKNOWN, "unexpected answer from Ashby")
-    if any(job.get("id") == job_id for job in data["jobs"]):
-        return Check(OPEN, "listed on Ashby")
+    for job in data["jobs"]:
+        if job.get("id") == job_id:
+            return _open("listed on Ashby", job)
     evidence = f"HTTP 200 {resp.url}: {len(data['jobs'])} jobs, none with id {job_id}"
     return Check(CLOSED, f"not on {org}'s Ashby job board", evidence=evidence)
 
@@ -219,7 +245,7 @@ def check_workday(url, get):
         return Check(
             CLOSED, "Workday says applications are closed", evidence=f"canApply false {resp.url}"
         )
-    return Check(OPEN, "listed on Workday")
+    return _open("listed on Workday", info)
 
 
 def check_smartrecruiters(url, get):
@@ -233,13 +259,14 @@ def check_smartrecruiters(url, get):
     found = _api_status(resp, "SmartRecruiters")
     if found:
         return found
-    if (_json(resp) or {}).get("active") is False:
+    data = _json(resp) or {}
+    if data.get("active") is False:
         return Check(
             CLOSED,
             "SmartRecruiters says the posting is inactive",
             evidence=f"active false {resp.url}",
         )
-    return Check(OPEN, "listed on SmartRecruiters")
+    return _open("listed on SmartRecruiters", data)
 
 
 _TAG = re.compile(r"<[^>]+>")
@@ -284,7 +311,7 @@ def check_page(url, get, phrases):
             if redirected:
                 return Check(UNKNOWN, f'page says "{phrase}" after a redirect')
             return Check(CLOSED, f'page says "{phrase}"', evidence=f'HTTP 200 {url}: "{phrase}"')
-    return Check(OPEN, "page loads")
+    return Check(OPEN, "page loads", season=season_of(text))
 
 
 BOARDS = (check_workday, check_greenhouse, check_lever, check_ashby, check_smartrecruiters)
@@ -360,7 +387,11 @@ def check_all(
             fresh = False  # a closed answer without evidence is never reused
         if fresh:
             results[url] = Check(
-                hit["status"], hit.get("detail", ""), hit.get("flag", ""), hit.get("evidence", "")
+                hit["status"],
+                hit.get("detail", ""),
+                hit.get("flag", ""),
+                hit.get("evidence", ""),
+                hit.get("season", ""),
             )
         else:
             todo.append(url)
@@ -383,6 +414,7 @@ def check_all(
                 "detail": found.detail,
                 "flag": found.flag,
                 "evidence": found.evidence,
+                "season": found.season,
                 "checked": now.isoformat(),
             }
     if todo:
@@ -402,12 +434,14 @@ class Report:
     closed: int = 0
     unknown: int = 0
     too_old: int = 0
+    seasons: int = 0  # Unknown seasons read from the posting
     seconds: float = 0.0
 
     def summary(self) -> str:
         return (
             f"Link check: {self.open} open, {self.closed} closed, {self.unknown} unknown "
             f"({self.too_old} unknown dropped as too old) in {self.seconds:.0f}s"
+            + (f"; season read from {self.seasons} postings" if self.seasons else "")
         )
 
 
@@ -445,6 +479,11 @@ def apply(result, cfg: dict, root: Path, get=None, today: date | None = None) ->
             continue
         if found.status == OPEN:
             report.open += 1
+            if job.season == "Unknown" and found.season:
+                # The list gave no term; the posting itself says (SimplifyJobs "N/A" terms).
+                job.season = found.season
+                job.flags = [f for f in job.flags if f != "check season"]
+                report.seasons += 1
             kept.append(job)
             continue
         report.unknown += 1
