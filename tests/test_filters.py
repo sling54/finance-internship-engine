@@ -16,6 +16,13 @@ from jobengine.models import Rejected
         ("2027 Investment Analyst Internship", "Buy-side investing"),
         ("Data Analyst Intern", "Data analytics"),
         ("Software Engineer Intern", "Software engineering"),
+        # Venture capital is kept (Amir, Nov 12); these were dropped as "no matching track".
+        ("2027 Summer Internship Program – Venture Capital, New York", "Buy-side investing"),
+        (
+            "Venture Studio (Startup Incubator) Intern (New York) - Summer 2027",
+            "Buy-side investing",
+        ),
+        ("Venture Capital Intern (Part-time, Fall/Winter)", "Buy-side investing"),
         ("Private Wealth Management Intern", "Wealth management"),
         ("Summer Analyst Intern", "Unclear division"),
     ],

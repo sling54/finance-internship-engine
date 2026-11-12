@@ -18,7 +18,7 @@ tracks:
                "investment research", "equity research", "research analyst", "family office",
                "hedge fund", "credit analyst", "fixed income", "equity analyst", "sector analyst",
                "macro analyst", "fundamental research", "fundamental researcher", economist,
-               "economic research"]
+               "economic research", "venture capital", "venture studio"]
   - name: Data analytics
     priority: 2
     location_rule: season        # anywhere in the US in Summer, near campus otherwise
