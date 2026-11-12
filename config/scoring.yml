@@ -16,6 +16,11 @@ fast_mode: true
 # Long descriptions are cut to this many characters to keep each check fast.
 max_description_chars: 4000
 
+# Stop AI scoring after this many minutes per scan (0 = no limit). Roles left over keep a
+# blank score and are scored first by the next scan, so a scan with hundreds of new roles
+# still finishes.
+max_minutes: 90
+
 what_i_want: |
   Top priority: trading, quantitative, derivatives, options, futures and market-making internships
   (prop trading firms, hedge funds, market makers, bank sales & trading).

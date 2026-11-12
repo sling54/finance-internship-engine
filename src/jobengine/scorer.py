@@ -28,6 +28,7 @@ SYSTEM = (
     "Be strict and consistent. Reply with JSON only."
 )
 STOP_AFTER_FAILURES = 3  # in a row: the server has likely crashed, so stop asking
+DEFAULT_MAX_MINUTES = 90  # per scan; roles left over are scored by the next scan
 
 
 @dataclass
@@ -260,8 +261,17 @@ def score_jobs(
         else:
             todo.append(job)
 
+    max_minutes = float(scoring.get("max_minutes", DEFAULT_MAX_MINUTES) or 0)  # 0 = no limit
+    began = time.monotonic()
     failures_in_a_row = 0
     for i, job in enumerate(todo, 1):
+        if max_minutes and time.monotonic() - began >= max_minutes * 60:
+            left = len(todo) - i + 1
+            report.stopped = (
+                f"time limit of {max_minutes:g} min (max_minutes in config/scoring.yml); "
+                f"{left} roles left unscored for the next scan"
+            )
+            break
         if progress:
             print(f"\rAI scoring {i}/{len(todo)} new roles...", end="", file=sys.stderr, flush=True)
         start = time.monotonic()
