@@ -184,14 +184,14 @@ def write_csv(path: Path, jobs: list[Posting], reasons: list[str] | None = None)
             writer.writerow(row)
 
 
-def check_links(result: Result, cfg: Config, root: Path, get=None) -> None:
+def check_links(result: Result, cfg: Config, root: Path, get=None, refilter=None) -> None:
     """Drop closed listings. A failure here never fails the scan."""
     settings = link_check.settings(cfg.sources)
     if not settings["enabled"] or not result.kept:
         return
     say(f"Checking {len(result.kept)} listings are still open...")
     try:
-        result.links = link_check.apply(result, settings, root, get)
+        result.links = link_check.apply(result, settings, root, get, refilter=refilter)
     except Exception as exc:
         say("link check failed (see warning below); keeping every role")
         log.warning("link check failed: %s", exc)
@@ -201,9 +201,10 @@ def check_links(result: Result, cfg: Config, root: Path, get=None) -> None:
 def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT, ai: bool = True) -> Result:
     jobs = collect(cfg, only, root)
     say(f"Filtering {len(jobs):,} postings...")
-    result = run_filters(jobs, build_filters(cfg, root, DriveZone.load(root)))
+    filters = build_filters(cfg, root, DriveZone.load(root))
+    result = run_filters(jobs, filters)
     say(f"{len(result.kept)} roles kept")
-    check_links(result, cfg, root)
+    check_links(result, cfg, root, refilter=dict(filters).get("location"))
     data = root / "data"
     mark_new(result.kept, data / "seen.json")
     today = date.today().isoformat()

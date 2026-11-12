@@ -78,3 +78,58 @@ def test_open_answer_cached_without_a_season_is_checked_once_more(tmp_path):
     get = fake({WD_API: Resp(200, data=info)})
     found = link_check.check_all([WD], SETTINGS, tmp_path, get)
     assert found[WD].season == "Summer" and get.calls == [WD_API]
+
+
+def test_posting_pages_ignore_places_school_lists_and_school_terms():
+    # Real Nov 12 misreads: Micron's "continuing education in Fall of 2027" (a Summer role),
+    # HPE's other office in Spring, Texas next to a date, Lever's school list.
+    assert season_of(["Must be continuing education in Fall of 2027"]) == ""
+    assert season_of(["Graduating in Spring 2028 or later"]) == ""
+    assert season_of(["Posted 2026-11-01", "Spring, Texas, United States of America"]) == ""
+    assert season_of(["Class of 2027 Spring Arbor University Springfield College"]) == ""
+    assert season_of(["Graduating in Spring 2028. Our Summer 2027 interns"]) == "Summer"
+
+
+def far_role(url):
+    job = role(url, "Unknown")
+    job.locations = ["Boise, ID"]
+    return job
+
+
+def test_a_season_read_from_the_posting_reruns_the_location_rule(tmp_path):
+    from jobengine.models import Rejected
+
+    def local_only_off_season(job):
+        if job.season != "Summer" and job.locations == ["Boise, ID"]:
+            raise Rejected(f"outside 1-hour zone ({job.season} role): Boise, ID")
+
+    fall_url, summer_url = WD, "https://x.example.com/jobs/2"
+    get = fake(
+        {
+            WD_API: Resp(200, data={"jobPostingInfo": {"jobDescription": "Fall 2027 co-op"}}),
+            summer_url: Resp(200, text="our summer internship program"),
+        }
+    )
+    result = Result()
+    fall, summer = far_role(fall_url), far_role(summer_url)
+    result.kept = [fall, summer]
+    report = link_check.apply(result, SETTINGS, tmp_path, get, refilter=local_only_off_season)
+    assert result.kept == [summer] and summer.season == "Summer"
+    assert result.rejected == [
+        (fall, "outside 1-hour zone (Fall role): Boise, ID (season from the posting)")
+    ]
+    assert "(1 dropped by the location rule)" in report.summary()
+
+
+def test_open_answer_read_by_the_older_season_rule_is_checked_once_more(tmp_path):
+    old = {
+        "status": "open",
+        "detail": "listed on Workday",
+        "season": "Fall",
+        "checked": "2099-01-01T00:00:00+00:00",
+    }
+    link_check.save_cache(tmp_path, {WD: old})
+    info = {"jobPostingInfo": {"jobDescription": "Must be continuing education in Fall of 2027"}}
+    get = fake({WD_API: Resp(200, data=info)})
+    assert link_check.check_all([WD], SETTINGS, tmp_path, get)[WD].season == ""
+    assert link_check.check_all([WD], SETTINGS, tmp_path, fake({}))[WD].season == ""  # cached

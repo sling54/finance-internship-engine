@@ -27,9 +27,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from . import removed
-from .filters.season import detect_season
+from .filters.season import posting_season
 from .http import USER_AGENT
-from .models import Posting
+from .models import Rejected
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ OPEN, CLOSED, UNKNOWN = "open", "closed", "unknown"
 NOT_VERIFIED = "not verified"
 CAREERS_REDIRECT = "redirects to careers page"
 SITE_BLOCKS = "site blocks the link check"
+SEASON_RULE = 2  # bump when season reading changes, so cached open answers are re-read
 # Answers that mean the site refused the checker itself (citadel.com sends 403 to scripts).
 # They say nothing about the role, so they never count toward dropping an old unknown.
 _BLOCKED_CODES = (401, 403)
@@ -84,8 +85,7 @@ def _strings(obj) -> list[str]:
 
 def season_of(data) -> str:
     """The season a posting's text states ("Summer 2027", "starting June 7th"), or ""."""
-    text = visible_text(html.unescape("\n".join(_strings(data))))
-    found = detect_season(Posting("", "", "", "", description=text))
+    found = posting_season(visible_text(html.unescape("\n".join(_strings(data)))))
     return "" if found == "Unknown" else found
 
 
@@ -385,8 +385,8 @@ def check_all(
             fresh = False
         if fresh and hit["status"] == CLOSED and not hit.get("evidence"):
             fresh = False  # a closed answer without evidence is never reused
-        if fresh and hit["status"] == OPEN and "season" not in hit:
-            fresh = False  # cached before seasons were read from postings: read it once
+        if fresh and hit["status"] == OPEN and hit.get("season_rule") != SEASON_RULE:
+            fresh = False  # season read by an older rule (or not at all): read it once more
         if fresh:
             results[url] = Check(
                 hit["status"],
@@ -417,6 +417,7 @@ def check_all(
                 "flag": found.flag,
                 "evidence": found.evidence,
                 "season": found.season,
+                "season_rule": SEASON_RULE,
                 "checked": now.isoformat(),
             }
     if todo:
@@ -437,6 +438,7 @@ class Report:
     unknown: int = 0
     too_old: int = 0
     seasons: int = 0  # Unknown seasons read from the posting
+    dropped: int = 0  # of those, roles the season's location rule then dropped
     seconds: float = 0.0
 
     def summary(self) -> str:
@@ -444,6 +446,7 @@ class Report:
             f"Link check: {self.open} open, {self.closed} closed, {self.unknown} unknown "
             f"({self.too_old} unknown dropped as too old) in {self.seconds:.0f}s"
             + (f"; season read from {self.seasons} postings" if self.seasons else "")
+            + (f" ({self.dropped} dropped by the location rule)" if self.dropped else "")
         )
 
 
@@ -454,8 +457,12 @@ def _posted(value: str) -> date | None:
         return None
 
 
-def apply(result, cfg: dict, root: Path, get=None, today: date | None = None) -> Report:
-    """Check result.kept; move closed and too-old unknown roles to result.rejected."""
+def apply(
+    result, cfg: dict, root: Path, get=None, today: date | None = None, refilter=None
+) -> Report:
+    """Check result.kept; move closed and too-old unknown roles to result.rejected.
+    `refilter(job)` re-runs the season-dependent filters (location) on a role whose season
+    was just read from its posting; it raises Rejected to drop the role."""
     start = time.monotonic()
     today = today or date.today()
     boards = {
@@ -486,6 +493,14 @@ def apply(result, cfg: dict, root: Path, get=None, today: date | None = None) ->
                 job.season = found.season
                 job.flags = [f for f in job.flags if f != "check season"]
                 report.seasons += 1
+                if refilter:
+                    try:
+                        refilter(job)  # a Fall role far from campus is dropped, as the
+                    except Rejected as why:  # filters would have if the list had said Fall
+                        report.dropped += 1
+                        result.rejected.append((job, f"{why} (season from the posting)"))
+                        continue
+                    job.flags = list(dict.fromkeys(job.flags))  # a rerun may re-add "remote"
             kept.append(job)
             continue
         report.unknown += 1
