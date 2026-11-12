@@ -33,6 +33,10 @@ log = logging.getLogger(__name__)
 OPEN, CLOSED, UNKNOWN = "open", "closed", "unknown"
 NOT_VERIFIED = "not verified"
 CAREERS_REDIRECT = "redirects to careers page"
+SITE_BLOCKS = "site blocks the link check"
+# Answers that mean the site refused the checker itself (citadel.com sends 403 to scripts).
+# They say nothing about the role, so they never count toward dropping an old unknown.
+_BLOCKED_CODES = (401, 403)
 
 DEFAULTS = {
     "enabled": True,
@@ -268,6 +272,8 @@ def check_page(url, get, phrases):
         if redirected:  # e.g. a firm site that moved its job pages: proves nothing
             return Check(UNKNOWN, f"HTTP {code} after a redirect")
         return Check(CLOSED, f"HTTP {code}", evidence=f"HTTP {code} {url}")
+    if code in _BLOCKED_CODES:
+        return Check(UNKNOWN, f"HTTP {code}", SITE_BLOCKS)
     if code != 200:
         return Check(UNKNOWN, f"HTTP {code}")
     if redirected and careers_home(url, resp.url):
@@ -444,7 +450,7 @@ def apply(result, cfg: dict, root: Path, get=None, today: date | None = None) ->
         report.unknown += 1
         posted = _posted(job.date_posted)
         limit = cfg["max_unknown_age_days"]
-        if posted and (today - posted).days > limit:
+        if posted and (today - posted).days > limit and found.flag != SITE_BLOCKS:
             report.too_old += 1
             result.rejected.append(
                 (job, f"unverified and posted {posted} (over {limit} days ago): {found.detail}")
