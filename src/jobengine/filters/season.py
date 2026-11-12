@@ -121,6 +121,32 @@ def detect_season(job: Posting) -> str:
     return "Unknown"
 
 
+# "Must be continuing education in Fall of 2027", "graduating in Spring 2028": a term the
+# candidate is in school or graduates, not when the internship runs.
+_NOT_THE_TERM = re.compile(
+    r"\b(?:continu\w*|enroll\w*|returning to (?:school|campus|university)|graduat\w*|"
+    r"in school)\b[^.\n]{0,40}$",
+    re.IGNORECASE,
+)
+
+
+def posting_season(text: str) -> str:
+    """The season a whole posting page states, or "Unknown". Stricter than detect_season,
+    because a page carries more than the role: locations ("Spring, Texas"), school lists
+    ("Spring Arbor University"), dates posted, and school-term requirements. Only a season
+    with a year, a dated start, or a phrase like "our summer internship" counts."""
+    for m in _TERM.finditer(text):
+        if not _NOT_THE_TERM.search(text[max(0, m.start() - 80) : m.start()]):
+            return _NAMES[m.group(1).lower()]
+    start = _DATED_START.search(text) or _MONTH_START.search(text)
+    if start:
+        return month_season(start.group(1))
+    m = _SEASON_PHRASE.search(text)
+    if m:
+        return _NAMES[(m.group(1) or m.group(2)).lower()]
+    return "Unknown"
+
+
 def _drop_stale_list_terms(job: Posting) -> list[tuple[str, int]]:
     """Remove source-list terms that had already started when the role was posted; return them."""
     posted = re.match(r"(20\d\d)-(\d\d)", job.date_posted or "")
