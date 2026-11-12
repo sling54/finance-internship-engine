@@ -69,3 +69,12 @@ def test_apply_fills_only_unknown_seasons_and_caches_them(tmp_path):
     result.kept = [again]
     link_check.apply(result, SETTINGS, tmp_path, fake({}))  # answered from the cache
     assert again.season == "Summer"
+
+
+def test_open_answer_cached_without_a_season_is_checked_once_more(tmp_path):
+    old = {"status": "open", "detail": "listed on Workday", "checked": "2099-01-01T00:00:00+00:00"}
+    link_check.save_cache(tmp_path, {WD: old})
+    info = {"jobPostingInfo": {"jobDescription": "Summer 2027 internship"}}
+    get = fake({WD_API: Resp(200, data=info)})
+    found = link_check.check_all([WD], SETTINGS, tmp_path, get)
+    assert found[WD].season == "Summer" and get.calls == [WD_API]

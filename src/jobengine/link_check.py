@@ -385,6 +385,8 @@ def check_all(
             fresh = False
         if fresh and hit["status"] == CLOSED and not hit.get("evidence"):
             fresh = False  # a closed answer without evidence is never reused
+        if fresh and hit["status"] == OPEN and "season" not in hit:
+            fresh = False  # cached before seasons were read from postings: read it once
         if fresh:
             results[url] = Check(
                 hit["status"],
