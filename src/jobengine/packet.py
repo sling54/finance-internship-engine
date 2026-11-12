@@ -208,6 +208,8 @@ def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[
             found = "Yes"
     elif has("hear", "referral source", "referred", "how did you find", "where did you find"):
         found = settings.get("how_did_you_hear", "")
+    elif has("relocate", "relocation"):
+        found = settings.get("willing_to_relocate", "")
     elif has("contact method", "preferred method of contact"):
         found = settings.get("preferred_contact_method", "Email")
     elif has("school", "university", "college", "institution"):

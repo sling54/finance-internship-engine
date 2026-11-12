@@ -101,7 +101,7 @@ written to `rejected_DATE.csv` with its reason.
 | **Title** (`titles.yml`) | Internships matching a track: Trading, Quant / derivatives, Buy-side, Data, SWE, Wealth | Investment banking, M&A, audit, PhD- or master's-only titles, full-time roles |
 | **Eligibility** | Bachelor's-eligible roles asking for graduates in the profile's window (or naming no date) | `PhD only`, `Class of 2026`, `graduating Spring 2027` |
 | **Season** | Upcoming terms, read from term lists, titles ("2027 Summer Internship", "January Start") and descriptions ("15–20 hours per week") | Terms already started, terms starting after graduation |
-| **Location** | Summer roles anywhere in the US; fall, winter, spring, part-time and all Data/SWE roles within a 1-hour drive of campus, or remote | Non-US roles, far-away semester roles, "Remote in UK" |
+| **Location** | Summer roles anywhere in the US; fall, winter, spring and part-time roles within a 1-hour drive of campus, or remote | Non-US roles, far-away semester roles, "Remote in UK" |
 | **Already applied** | Everything else | Roles already in the application tracker spreadsheet, matched despite wording differences |
 
 Roles the engine can't judge are kept but flagged for review: `check season`, `check location`,

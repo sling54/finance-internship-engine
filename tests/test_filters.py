@@ -220,7 +220,7 @@ def test_london_summer_fails(titles, season, location):
 
 
 def test_remote_abroad_fails(titles, season, location):
-    with pytest.raises(Rejected, match="outside 1-hour zone"):
+    with pytest.raises(Rejected, match="outside the US"):
         location(located(titles, season, "Software Engineer Intern", ["Remote in UK"]))
 
 
@@ -230,10 +230,41 @@ def test_multi_city_with_one_us_office_passes(titles, season, location):
     )
 
 
-def test_data_roles_stay_miami_in_summer(titles, season, location):
-    with pytest.raises(Rejected, match="Miami-area track"):
-        location(located(titles, season, "Data Analyst Intern - Summer 2027", ["Chicago, IL"]))
-    location(located(titles, season, "Data Analyst Intern - Summer 2027", ["Doral, FL"]))
+def test_data_and_software_roles_go_anywhere_in_summer_but_stay_local_otherwise(
+    titles, season, location
+):
+    # Amir, Nov 11: no location limit in Summer; Fall and Spring within 60 min of FIU.
+    location(located(titles, season, "Data Analyst Intern - Summer 2027", ["Chicago, IL"]))
+    location(located(titles, season, "Software Engineer Intern - Summer 2027", ["Seattle, WA"]))
+    with pytest.raises(Rejected, match="Fall role"):
+        location(located(titles, season, "Data Analyst Intern - Fall 2027", ["Chicago, IL"]))
+    location(located(titles, season, "Data Analyst Intern - Fall 2027", ["Doral, FL"]))
+
+
+@pytest.mark.parametrize(
+    "title, reason",
+    [
+        ("2027 Summer Associate - Financial Restructuring", "graduate-only role"),
+        ("Trading Operations Analyst Intern", "excluded title term"),
+        ("Investment Operations Intern - Summer 2027", "excluded title term"),
+        ("ETF Sales Internship: Summer 2027", "excluded title term"),
+    ],
+)
+def test_mba_associate_ops_and_sales_roles_are_dropped(titles, title, reason):
+    with pytest.raises(Rejected, match=reason):
+        titles(job(title))
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Sales and Trading Summer Analyst",
+        "Sales & Trading Intern",
+        "Quantitative Operations Research Intern",
+    ],
+)
+def test_sales_and_trading_and_operations_research_stay(titles, title):
+    titles(job(title))
 
 
 def test_unknown_place_is_flagged_not_dropped(titles, season, location):
@@ -291,20 +322,20 @@ def test_dedup_keeps_different_roles():
 @pytest.mark.parametrize(
     "title,track,priority,rule",
     [
-        ("Quantitative Developer Internship", "Software engineering", 3, "miami"),
+        ("Quantitative Developer Internship", "Software engineering", 3, "season"),
         ("Quant Developer / Quant Research Intern", "Quant / derivatives", 1, "season"),
         (
             "2027 Summer Internship Program – Systematic Trading Technology Software Engineer, New York",
             "Software engineering",
             3,
-            "miami",
+            "season",
         ),
         ("Quant Trader Intern", "Trading", 1, "season"),
-        ("Quant Systems Engineer Intern", "Software engineering", 3, "miami"),
+        ("Quant Systems Engineer Intern", "Software engineering", 3, "season"),
         ("Quant Developer Researcher Intern", "Quant / derivatives", 1, "season"),
         ("Quant Developer Trader Intern", "Trading", 1, "season"),
         ("Quant Developers Intern", "Quant / derivatives", 1, "season"),
-        ("QUANT DEVELOPER INTERN", "Software engineering", 3, "miami"),
+        ("QUANT DEVELOPER INTERN", "Software engineering", 3, "season"),
     ],
 )
 def test_title_reassignment(titles, title, track, priority, rule):
