@@ -9,6 +9,12 @@ from ..textutil import normalize, phrase_pattern
 class TitleFilter:
     def __init__(self, titles_cfg: dict):
         self.exclude = phrase_pattern(titles_cfg["exclude"])
+        # "Sales & Trading" survives the "sales" exclude: the excepted phrase is blanked first.
+        self.exclude_except = (
+            phrase_pattern(titles_cfg["exclude_except"])
+            if titles_cfg.get("exclude_except")
+            else None
+        )
         self.internship = phrase_pattern(titles_cfg["internship_keywords"])
         self.ambiguous = phrase_pattern(titles_cfg.get("ambiguous_keywords", []))
         self.not_finance = phrase_pattern(titles_cfg.get("ambiguous_exclude", ["technology"]))
@@ -51,7 +57,8 @@ class TitleFilter:
         )
         if hit:
             raise Rejected(f"graduate-only role: {hit.group(0)}")
-        hit = self.exclude.search(title)
+        checked = self.exclude_except.sub(" ", title) if self.exclude_except else title
+        hit = self.exclude.search(checked)
         if hit:
             raise Rejected(f"excluded title term: {hit.group(0)}")
         if not (job.is_internship or self.internship.search(title)):

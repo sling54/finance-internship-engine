@@ -21,11 +21,11 @@ tracks:
                "economic research"]
   - name: Data analytics
     priority: 2
-    location_rule: miami         # Miami area in every season
+    location_rule: season        # anywhere in the US in Summer, near campus otherwise
     keywords: ["data analyst", "data analytics", "data science", "business intelligence", analytics]
   - name: Software engineering
     priority: 3
-    location_rule: miami
+    location_rule: season
     keywords: ["software engineer", "software engineering", "software developer", "python developer",
                "quant developer", "quantitative developer"]
   - name: Wealth management
@@ -65,6 +65,8 @@ exclude:
   - webinar
   - info session
   - information session
+  - operations    # ops and sales internships aren't wanted (Amir, Nov 11)
+  - sales
   - digital image  # "Digital Image Asset Management" is media archiving, not investing
 
 # A title counts as an internship if it contains one of these.
@@ -78,4 +80,7 @@ reassign:
     unless_any: [research, researcher, trader]
 
 # Graduate-student-only phrases in titles or normalized URLs.
-graduate_only: ["graduate intern"]
+graduate_only: ["graduate intern", "summer associate"]   # Summer Associate = MBA-level
+
+# Phrases that keep a title despite an exclude term inside them.
+exclude_except: ["sales and trading", "sales & trading", "operations research"]

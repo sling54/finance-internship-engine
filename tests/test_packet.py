@@ -167,6 +167,7 @@ def test_rule_answers_from_the_profile(root):
     assert ans("How were you referred to us?") == ("Company website", "profile")
     assert ans("Preferred contact method?") == ("Email", "profile")
     assert ans("Preferred contact method?", "select", ["Phone", "Email"]) == ("Email", "rule")
+    assert ans("Willing to relocate?", "select", ["Yes", "No"]) == ("Yes", "rule")
     resume = root / PROFILE["resume_path"]
     assert ans("Resume/CV", "file", resume=resume) == (str(resume), "profile")
     assert ans("Cover Letter", "file", resume=resume) == ("", "you")
