@@ -110,7 +110,7 @@ def collect(cfg: Config, only: set[str] | None = None, root: Path = ROOT) -> lis
 
 
 def build_filters(cfg: Config, root: Path = ROOT, zone: DriveZone | None = None):
-    titles = TitleFilter(cfg.titles)
+    titles = TitleFilter({**cfg.titles, "my_school": cfg.profile.get("school", "")})
     tracker = root / cfg.profile.get("tracker_path", "data/ApplicationTracker.xlsx")
     return [
         ("removed", RemovedFilter(removed.load(root))),  # first, so its reason is the one logged
