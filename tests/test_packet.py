@@ -353,7 +353,7 @@ def test_fill_greenhouse_by_field_name(root):
         "Will you now or in the future require sponsorship?",
         "Gender",
     ]
-    assert ("choose", '[name="question_1"]', "No") in page.calls
+    assert ("choose", 'select[name="question_1"]', "No") in page.calls
     assert any(c[0] == "upload" and 'input[type="file"][name="resume"]' == c[1] for c in page.calls)
     assert "Why are you interested in Example Capital? (required)" in report.yours
     assert not any("click" in c[0] for c in page.calls)

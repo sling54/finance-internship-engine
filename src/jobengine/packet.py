@@ -335,6 +335,8 @@ def build(
     words = int(settings.get("max_answer_words", 150))
     for f in packet.fields:
         f.answer, f.source = rule_answer(f, profile, settings, resume)
+        if f.name == "resume_text":
+            continue  # the resume file is attached; never have the AI write a resume
         if not f.answer and is_open_question(f):
             drafted = draft_answer(client, f.label, packet, about, words)
             if drafted:
@@ -373,6 +375,14 @@ def markdown(packet: Packet) -> str:
 def write(packet: Packet, root: Path) -> Path:
     folder = root / "data" / "packets" / packet.slug
     folder.mkdir(parents=True, exist_ok=True)
+    cover_file = next((f for f in packet.fields if f.name == "cover_letter"), None)
+    cover_text = next((f for f in packet.fields if f.name == "cover_letter_text"), None)
+    if cover_file and not cover_file.answer and cover_text and cover_text.answer:
+        # Greenhouse shows the cover letter as a file upload; its text box sits behind an
+        # "Enter manually" button the filler never clicks. Attach the draft as a file.
+        path = folder / "cover_letter.txt"
+        path.write_text(cover_text.answer + "\n", encoding="utf-8")
+        cover_file.answer, cover_file.source = str(path), cover_text.source
     (folder / "packet.md").write_text(markdown(packet), encoding="utf-8")
     (folder / "answers.json").write_text(json.dumps(asdict(packet), indent=1), encoding="utf-8")
     return folder
