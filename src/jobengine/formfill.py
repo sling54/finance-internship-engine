@@ -49,6 +49,11 @@ class FormPage:
     def upload_label(self, label: str, path: str) -> bool:
         raise NotImplementedError
 
+    def pick(self, selector: str, option: str) -> bool:
+        """A script-built dropdown (role=combobox, e.g. Greenhouse's React selects):
+        type the option and press Tab to take it. Tab never submits a form."""
+        return False
+
 
 class PlaywrightPage(FormPage):
     def __init__(self, page):
@@ -79,6 +84,25 @@ class PlaywrightPage(FormPage):
     def upload_label(self, label, path):
         found = self._one(self.page.get_by_label(label, exact=False))
         return self._try(lambda: found.set_input_files(path)) if found else False
+
+    def pick(self, selector, option):
+        found = self._one(self.page.locator(selector))
+        if not found:
+            return False
+
+        def take():
+            found.fill(option)
+            self.page.wait_for_timeout(500)  # let the menu filter to the option
+            found.press("Tab")  # react-select takes the highlighted option on Tab, never Enter
+            self.page.wait_for_timeout(200)
+
+        if not self._try(take):
+            return False
+        try:  # check the dropdown now shows the option
+            control = found.locator('xpath=ancestor::div[contains(@class, "control")][1]')
+            return bool(control.count()) and option.lower() in control.inner_text().lower()
+        except Exception:
+            return False
 
     @staticmethod
     def _try(action) -> bool:
@@ -113,14 +137,25 @@ def _css_name(name: str) -> str:
 
 def _put(page: FormPage, f: Field, packet: Packet) -> bool:
     if packet.board == "greenhouse" and f.name:
-        sel = f'[name="{_css_name(f.name)}"]'
+        # Older Greenhouse forms name each field; the newer job-boards.greenhouse.io forms
+        # give it only an id (file inputs hidden behind "Attach", React dropdowns).
+        name = _css_name(f.name)
+        sel, by_id = f'[name="{name}"]', f'[id="{name}"]'
         if f.kind == "file":
-            return page.upload(f'input[type="file"]{sel}', f.answer) or page.upload_label(
-                f.label, f.answer
+            return (
+                page.upload(f'input[type="file"]{sel}', f.answer)
+                or page.upload(f'input[type="file"]{by_id}', f.answer)
+                or page.upload_label(f.label, f.answer)
             )
         if f.kind in ("select", "multiselect"):
-            return page.choose(sel, f.answer)
-        return page.fill(sel, f.answer) or page.fill_label(f.label, f.answer)
+            return page.choose(f"select{sel}", f.answer) or page.pick(
+                f'input[role="combobox"]{by_id}', f.answer
+            )
+        return (
+            page.fill(sel, f.answer)
+            or page.fill(by_id, f.answer)
+            or page.fill_label(f.label, f.answer)
+        )
     if packet.board == "lever":
         sel = LEVER.get(f.label.strip().lower())
         if sel:
@@ -133,7 +168,10 @@ def _put(page: FormPage, f: Field, packet: Packet) -> bool:
 def fill_form(page: FormPage, packet: Packet) -> FillReport:
     report = FillReport()
     seen_lever_name = False
+    files = {x.name for x in packet.fields if x.kind == "file" and x.answer}
     for f in packet.fields:
+        if packet.board == "greenhouse" and f.name.endswith("_text") and f.name[:-5] in files:
+            continue  # "Enter manually" box for a file already attached (resume, cover letter)
         if not f.answer:
             report.yours.append(f.label + (" (required)" if f.required else ""))
             continue

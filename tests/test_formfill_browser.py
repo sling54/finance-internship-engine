@@ -60,3 +60,29 @@ def test_real_browser_fills_without_submitting(page, tmp_path):
     assert page.input_value("#why") == "Markets."  # found by its label
     assert report.missed == ["Missing field"]
     assert page.title() != "SUBMITTED"
+
+
+COMBO = """<!doctype html><form>
+<div class="select__control"><div class="value"></div>
+<input id="question_7" role="combobox" class="select__input"></div>
+<button type="submit">Submit</button>
+</form><script>
+document.forms[0].onsubmit = () => { document.title = "SUBMITTED"; return false; };
+const box = document.getElementById("question_7");
+box.addEventListener("keydown", (e) => {  // like react-select: Tab takes the typed option
+  const hit = ["Email", "Phone"].find((o) => o.toLowerCase().startsWith(box.value.toLowerCase()));
+  if (e.key === "Tab" && box.value && hit) { document.querySelector(".value").textContent = hit; box.value = ""; }
+});
+</script>"""
+
+
+def test_real_browser_picks_a_combobox_option_without_submitting(page, tmp_path):
+    html = tmp_path / "combo.html"
+    html.write_text(COMBO)
+    page.goto(html.as_uri())
+    form = PlaywrightPage(page)
+    assert form.pick('input[role="combobox"][id="question_7"]', "Email")
+    assert page.inner_text(".value") == "Email"
+    assert not form.pick('input[role="combobox"][id="question_7"]', "Fax")
+    assert not form.pick('input[role="combobox"][id="nope"]', "Email")
+    assert page.title() != "SUBMITTED"
