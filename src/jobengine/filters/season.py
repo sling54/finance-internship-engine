@@ -7,6 +7,7 @@ import re
 from datetime import date
 
 from ..models import Posting, Rejected
+from ..textutil import normalize
 
 _TERM = re.compile(
     r"\b(summer|fall|autumn|spring|winter)\s*(?:of\s*|term\s*)?'?(20\d\d|\d\d)\b", re.IGNORECASE
@@ -38,6 +39,20 @@ _MONTH_START = re.compile(
     re.IGNORECASE,
 )
 
+# "Dates: 10 week program, starting June 7th 2027", "start date: January 12, 2027"
+_DATED_START = re.compile(
+    r"\b(?:start\w*|begin\w*|dates?)\b[^.\n]{0,40}?"
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+"
+    r"\d{1,2}(?:st|nd|rd|th)?,?\s+20\d\d",
+    re.IGNORECASE,
+)
+# "you'll spend your summer embedded...", "our Summer Internship Program", "summer interns"
+_SEASON_PHRASE = re.compile(
+    r"\b(?:(?:your|the|this|our)\s+(summer|fall|autumn|spring|winter)\b(?!\s+(?:of\s+)?20\d\d)"
+    r"|(summer|fall|autumn|spring|winter)\s+(?:intern\w*|program\w*|analysts?|cohort|class))",
+    re.IGNORECASE,
+)
+
 
 def month_season(month: str) -> str:
     """Season a start month falls in: Jan-Apr Spring, May-Jul Summer, Aug-Nov Fall, Dec Winter."""
@@ -56,9 +71,9 @@ def _year(raw: str) -> int:
 
 
 def explicit_terms(job: Posting) -> list[tuple[str, int]]:
-    """Season-year pairs stated in the source's term list or the title."""
+    """Season-year pairs stated in the source's term list, the title or the URL."""
     terms = []
-    for text in [*job.terms, job.title]:
+    for text in [*job.terms, job.title, _url_words(job.url)]:
         for m in _TERM.finditer(text):
             terms.append((_NAMES[m.group(1).lower()], _year(m.group(2))))
     for m in _YEAR_FIRST.finditer(job.title):  # "2027 Summer Internship"
@@ -69,6 +84,12 @@ def explicit_terms(job: Posting) -> list[tuple[str, int]]:
             year += 1  # a December start belongs to the next winter term
         terms.append((season, year))
     return terms
+
+
+def _url_words(url: str) -> str:
+    """The URL's path as words, so ".../Computer-Programming-Internship-Summer-2026" reads
+    "summer 2026". The query string is left out (tracking ids)."""
+    return normalize(url.split("?")[0]) if url else ""
 
 
 def detect_season(job: Posting) -> str:
@@ -86,6 +107,17 @@ def detect_season(job: Posting) -> str:
     m = _TERM.search(head) or _SEASON_WORD.search(job.title)
     if m:
         return _NAMES[m.group(1).lower()]
+    # The rest of the description: a dated start, a stated term, or a season phrase.
+    text = job.description
+    start = _DATED_START.search(text)
+    if start:
+        return month_season(start.group(1))
+    m = _TERM.search(text)
+    if m:
+        return _NAMES[m.group(1).lower()]
+    m = _SEASON_PHRASE.search(text)
+    if m:
+        return _NAMES[(m.group(1) or m.group(2)).lower()]
     return "Unknown"
 
 

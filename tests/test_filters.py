@@ -437,3 +437,45 @@ def test_dedup_keeps_same_titled_roles_in_two_cities_apart():
 def test_job_helper_urls_are_unique_and_overridable():
     assert job().url != job().url
     assert job(url="https://example.com/custom").url == "https://example.com/custom"
+
+
+# ---------- Season "Unknown" (Nov 12): terms in URLs and deeper in descriptions ----------
+
+
+def test_term_in_the_url_counts(season):
+    # Simplify listed this with no term and the company name as its title.
+    url = "https://fintools.applytojob.com/apply/o7r6gV8IMh/Computer-Programming-Internship-Summer-2026"
+    with pytest.raises(Rejected, match="already started or over: Summer 2026"):
+        season(job("Montgomery Investment Technology", url=url))
+
+
+def test_url_query_string_is_not_read_for_terms(season):
+    j = job("Trading Intern", url="https://example.com/job/1?campaign=summer-2026")
+    season(j)
+    assert j.season == "Unknown"
+
+
+@pytest.mark.parametrize(
+    "description, expected",
+    [
+        # Optiver: "Institutional Trader Intern (2027 Start - Chicago)"
+        (
+            "As an Institutional Trader Intern at Optiver, you'll spend your summer embedded in "
+            "the fast-paced environment of our trading floor.",
+            "Summer",
+        ),
+        # Virtu: the dates come after 1,400 characters of firm boilerplate
+        (
+            "x " * 900 + "Location: Singapore Dates: 10 week program, starting June 7th 2027- "
+            "August 13th 2027.",
+            "Summer",
+        ),
+        ("x " * 900 + "Our Fall Internship Program runs September to December.", "Fall"),
+        ("x " * 900 + "Interns join us for Spring 2027 in our Miami office.", "Spring"),
+        ("Interns work on real trading problems with mentors.", "Unknown"),
+    ],
+)
+def test_season_from_the_whole_description(season, description, expected):
+    j = job("Quantitative Trading Intern", description=description)
+    season(j)
+    assert j.season == expected
