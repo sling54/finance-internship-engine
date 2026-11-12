@@ -206,9 +206,19 @@ def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT, ai: bool =
     check_links(result, cfg, root)
     data = root / "data"
     mark_new(result.kept, data / "seen.json")
+    today = date.today().isoformat()
+    # Write the listing before AI scoring too, so a scan stopped during scoring
+    # (Mac asleep, a time limit, Ctrl-C) still leaves today's roles in jobs_latest.csv.
+    write_results(data, today, result)
     if ai:
         result.ai = score_jobs(result.kept, cfg.scoring, cfg.profile, root)
-    today = date.today().isoformat()
+        write_csv(data / f"jobs_{today}.csv", result.kept)
+        write_csv(data / "jobs_latest.csv", result.kept)
+    record_history(data / "scan_history.json", today, result)
+    return result
+
+
+def write_results(data: Path, today: str, result: Result) -> None:
     write_csv(data / f"jobs_{today}.csv", result.kept)
     write_csv(data / "jobs_latest.csv", result.kept)
     write_csv(
@@ -216,8 +226,6 @@ def run(cfg: Config, only: set[str] | None = None, root: Path = ROOT, ai: bool =
         [j for j, _ in result.rejected],
         [r for _, r in result.rejected],
     )
-    record_history(data / "scan_history.json", today, result)
-    return result
 
 
 def record_history(path: Path, day: str, result: Result) -> None:
