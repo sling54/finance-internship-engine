@@ -10,6 +10,8 @@ from jobengine.config import CONFIG_DIR, Config, load_with_local, load_yaml
 from jobengine.formfill import FillReport, FormPage, fill_form
 from jobengine.packet import (
     Field,
+    ashby_fields,
+    ashby_job,
     board_of,
     build,
     greenhouse_fields,
@@ -465,3 +467,151 @@ def test_command_needs_a_role(project, capsys):
 def test_fill_report_summary_lists_both_kinds():
     text = FillReport(["Email"], ["Phone"], ["Cover Letter"]).summary()
     assert "Couldn't place these" in text and "Left for you" in text
+
+
+# ---------- Ashby: the real form from Ashby's API ----------
+
+ASHBY_URL = (
+    "https://jobs.ashbyhq.com/samplecap/5e2ea37b-2369-474e-b717-c24c60976e96/application?embed=true"
+)
+
+
+def _ashby_entry(path, title, type_, required=True, values=None, hidden=False):
+    field = {"path": path, "title": title, "type": type_}
+    if values:
+        field["selectableValues"] = [{"label": v, "value": v} for v in values]
+    return {"field": field, "isRequired": required, "isHidden": hidden}
+
+
+ASHBY = {
+    "data": {
+        "jobPosting": {
+            "title": "Quant Research Intern",
+            "applicationForm": {
+                "sections": [
+                    {
+                        "fieldEntries": [
+                            _ashby_entry("_systemfield_name", "Name", "String"),
+                            _ashby_entry("_systemfield_email", "Email", "Email"),
+                            _ashby_entry("_systemfield_resume", "Resume", "File"),
+                            _ashby_entry(
+                                "q1",
+                                "Are you legally authorized to work in the United States?",
+                                "Boolean",
+                            ),
+                            _ashby_entry(
+                                "q2",
+                                "Will you now or in the future require sponsorship for "
+                                "employment visa status in the United States?",
+                                "Boolean",
+                            ),
+                            _ashby_entry(
+                                "q3",
+                                "Please select all academic terms you are available",
+                                "MultiValueSelect",
+                                values=["Fall (Sept - Dec)", "Summer (June - Aug)"],
+                            ),
+                            _ashby_entry(
+                                "q4",
+                                "Are you currently enrolled in an accredited undergraduate or "
+                                "graduate program? What's the name of the school / program? "
+                                "What is your expected graduation month and year?",
+                                "LongText",
+                            ),
+                            _ashby_entry("q5", "Earliest start date?", "Date"),
+                            _ashby_entry("q6", "Secret", "String", hidden=True),
+                        ]
+                    },
+                    {"isHidden": True, "fieldEntries": [_ashby_entry("q7", "Hidden", "String")]},
+                ]
+            },
+        }
+    }
+}
+
+
+def fake_post(calls=None, status=200, data=ASHBY):
+    def post(url, body):
+        if calls is not None:
+            calls.append((url, body))
+        return FakeResponse(status, data)
+
+    return post
+
+
+def test_ashby_job_ids():
+    assert ashby_job(ASHBY_URL) == ("samplecap", "5e2ea37b-2369-474e-b717-c24c60976e96")
+    assert ashby_job("https://jobs.ashbyhq.com/samplecap") is None
+    assert ashby_job("https://example.com/samplecap/5e2ea37b-2369-474e-b717-c24c60976e96") is None
+
+
+def test_ashby_fields_follow_the_real_form():
+    fields = ashby_fields(ASHBY)
+    assert [f.name for f in fields] == [
+        "_systemfield_name",
+        "_systemfield_email",
+        "_systemfield_resume",
+        "q1",
+        "q2",
+        "q3",
+        "q4",
+        "q5",
+    ]
+    kinds = {f.name: f.kind for f in fields}
+    assert kinds["_systemfield_resume"] == "file" and kinds["q1"] == "boolean"
+    assert kinds["q3"] == "multiselect" and kinds["q4"] == "textarea" and kinds["q5"] == "date"
+    assert fields[3].options == ["Yes", "No"]
+    assert ashby_fields({"errors": [{"message": "bad"}]}) == []
+
+
+def test_ashby_packet_uses_the_real_form(root):
+    calls = []
+    model = FakeModel("I am a finance major and want to bring that to systematic research.")
+    row = {"company": "Sample Capital", "title": "Quant Research Intern", "url": ASHBY_URL}
+    packet = build(
+        row,
+        PROFILE,
+        SETTINGS,
+        root,
+        model,
+        fake_get(),
+        about="Finance major",
+        post=fake_post(calls),
+    )
+    assert calls[0][0].startswith("https://jobs.ashbyhq.com/api/non-user-graphql")
+    assert calls[0][1]["variables"] == {
+        "organizationHostedJobsPageName": "samplecap",
+        "jobPostingId": "5e2ea37b-2369-474e-b717-c24c60976e96",
+    }
+    assert packet.apply_url == (
+        "https://jobs.ashbyhq.com/samplecap/5e2ea37b-2369-474e-b717-c24c60976e96/application"
+    )
+    by = {f.name: f for f in packet.fields}
+    assert by["_systemfield_name"].answer == PROFILE["name"]
+    assert by["_systemfield_resume"].answer.endswith(PROFILE["resume_path"])
+    assert by["q2"].answer == "No"  # the example profile is a US citizen
+    assert by["q4"].source == "ai"  # a three-part essay box is drafted, not one profile value
+    assert by["q5"].source == "you"
+    assert not any(f.label in SETTINGS["default_questions"] for f in packet.fields)
+
+
+def test_ashby_api_failure_falls_back_to_standard_fields(root):
+    row = {"company": "Sample Capital", "title": "Quant Research Intern", "url": ASHBY_URL}
+    packet = build(row, PROFILE, SETTINGS, root, None, fake_get(), post=fake_post(status=500))
+    assert [f.label for f in packet.fields][:2] == ["First Name", "Last Name"]
+    packet = build(row, PROFILE, SETTINGS, root, None, fake_get())  # no post: standard fields
+    assert [f.label for f in packet.fields][:2] == ["First Name", "Last Name"]
+
+
+def test_fill_ashby_by_field_id_and_leave_yes_no_buttons(root):
+    row = {"company": "Sample Capital", "title": "Quant Research Intern", "url": ASHBY_URL}
+    packet = build(row, PROFILE, SETTINGS, root, None, fake_get(), post=fake_post())
+    page = FakePage(names=["_systemfield_name", "_systemfield_email", "_systemfield_resume"])
+    report = fill_form(page, packet)
+    assert report.filled == ["Name", "Email", "Resume"]
+    assert ("fill", '[id="_systemfield_name"]', PROFILE["name"]) in page.calls
+    assert any(
+        c[:2] == ("upload", 'input[type="file"][id="_systemfield_resume"]') for c in page.calls
+    )
+    assert not any(c[0] == "upload_label" for c in page.calls)  # never the autofill upload
+    assert "Are you legally authorized to work in the United States? (pick: Yes)" in report.yours

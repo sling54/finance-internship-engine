@@ -5,7 +5,7 @@
   (your profile, a fixed rule, an AI draft for you to edit, or "you": left for you);
 - answers.json: the same, for `--fill`, which types them into the form in a browser.
 
-Greenhouse forms are read from Greenhouse's public job API, so the packet has the form's
+Greenhouse and Ashby forms are read from the board's public API, so the packet has the form's
 real questions, custom ones included. For other boards it uses the standard fields plus
 default_questions from config/apply.yml. Nothing is ever submitted for you.
 """
@@ -37,7 +37,7 @@ MONTHS = "January February March April May June July August September October No
 class Field:
     label: str
     name: str = ""  # the form's field name, when the board says (Greenhouse)
-    kind: str = "text"  # text, textarea, file, select, multiselect
+    kind: str = "text"  # text, textarea, file, select, multiselect, boolean, date
     required: bool = False
     options: list[str] = field(default_factory=list)
     answer: str = ""
@@ -113,6 +113,77 @@ def greenhouse_fields(data: dict) -> list[Field]:
     return out
 
 
+ASHBY_GRAPHQL = "https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobPosting"
+ASHBY_QUERY = """query ApiJobPosting($organizationHostedJobsPageName: String!, $jobPostingId: String!) {
+  jobPosting(organizationHostedJobsPageName: $organizationHostedJobsPageName, jobPostingId: $jobPostingId) {
+    id
+    title
+    applicationForm {
+      sections {
+        isHidden
+        fieldEntries {
+          ... on FormFieldEntry { id field isRequired isHidden }
+        }
+      }
+    }
+  }
+}"""
+# Ashby field types -> packet kinds. Boolean is a pair of Yes/No buttons the filler can't
+# press (it never clicks), so those answers are shown for you to pick.
+ASHBY_KINDS = {
+    "String": "text",
+    "Email": "text",
+    "Phone": "text",
+    "Number": "text",
+    "SocialLink": "text",
+    "LongText": "textarea",
+    "File": "file",
+    "ValueSelect": "select",
+    "MultiValueSelect": "multiselect",
+    "Boolean": "boolean",
+    "Date": "date",
+    "Location": "text",
+}
+
+
+def ashby_job(url: str) -> tuple[str, str] | None:
+    """(job board name, job posting id) from a jobs.ashbyhq.com link, or None."""
+    parts = urlsplit(url)
+    if (parts.hostname or "").lower() != "jobs.ashbyhq.com":
+        return None
+    seg = [s for s in parts.path.split("/") if s]
+    if len(seg) >= 2 and re.fullmatch(r"[0-9a-fA-F-]{36}", seg[1]):
+        return seg[0], seg[1]
+    return None
+
+
+def ashby_fields(data: dict) -> list[Field]:
+    """The form's fields from Ashby's ApiJobPosting answer, in the order the form shows them."""
+    posting = ((data or {}).get("data") or {}).get("jobPosting") or {}
+    out = []
+    for section in (posting.get("applicationForm") or {}).get("sections") or []:
+        if section.get("isHidden"):
+            continue
+        for entry in section.get("fieldEntries") or []:
+            f = entry.get("field") or {}
+            if entry.get("isHidden") or not f.get("path"):
+                continue
+            kind = ASHBY_KINDS.get(f.get("type", ""), "text")
+            options = [str(v.get("label", "")) for v in f.get("selectableValues") or []]
+            if kind == "boolean":
+                options = ["Yes", "No"]
+            out.append(
+                Field(
+                    label=" ".join(str(f.get("title", "")).split()),
+                    name=f["path"],
+                    kind=kind,
+                    required=bool(entry.get("isRequired")),
+                    options=options,
+                )
+            )
+    return out
+
+
 STANDARD = [
     ("First Name", "text"),
     ("Last Name", "text"),
@@ -165,6 +236,10 @@ def _option(options: list[str], wanted: str) -> str:
 def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[str, str]:
     """(answer, source) from your profile or a fixed rule, or ("", "you")."""
     label = normalize(f.label)
+    if f.kind == "textarea" and len(label.split()) > 12:
+        # A long essay box that asks several things at once ("Which school, what program and
+        # when do you graduate?") needs a sentence, not one profile value; the AI drafts it.
+        return "", "you"
     first, last = _first_last(profile.get("name", ""))
     auth = profile.get("work_authorization", "")
     is_free = auth in ("us_citizen", "permanent_resident")
@@ -232,7 +307,7 @@ def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[
 
 def is_open_question(f: Field) -> bool:
     """An essay-style question the AI may draft: a text box, or "Why...?", "Tell us...", etc."""
-    if f.kind in ("file", "select", "multiselect"):
+    if f.kind in ("file", "select", "multiselect", "boolean", "date"):
         return False
     label = normalize(f.label)
     return f.kind == "textarea" or bool(
@@ -303,6 +378,7 @@ def build(
     client=None,
     get=None,
     about: str = "",
+    post=None,
 ) -> Packet:
     url = row.get("url", "")
     packet = Packet(
@@ -326,6 +402,26 @@ def build(
                 packet.description = packet.description or html_to_text(data.get("content", ""))
         except Exception as exc:
             log.warning("couldn't read the Greenhouse form for %s: %s", url, exc)
+    ashby = ashby_job(url) if packet.board == "ashby" else None
+    if ashby and post is not None:
+        board, job_id = ashby
+        try:
+            resp = post(
+                ASHBY_GRAPHQL,
+                {
+                    "operationName": "ApiJobPosting",
+                    "variables": {"organizationHostedJobsPageName": board, "jobPostingId": job_id},
+                    "query": ASHBY_QUERY,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                packet.fields = ashby_fields(data)
+                if not packet.fields and data.get("errors"):
+                    log.warning("Ashby didn't return the form for %s: %s", url, data["errors"][0])
+        except Exception as exc:
+            log.warning("couldn't read the Ashby form for %s: %s", url, exc)
+        packet.apply_url = f"https://jobs.ashbyhq.com/{board}/{job_id}/application"
     if not packet.fields:
         packet.fields = standard_fields(settings)
     if packet.board == "lever" and not url.rstrip("/").endswith("/apply"):
