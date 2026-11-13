@@ -47,6 +47,47 @@ def parse_jobspy_records(records: list[dict]) -> list[Posting]:
     return out
 
 
+def _unwrap_bigint(value):
+    """ZipRecruiter now writes numbers as "$n<digits>" (a serialized BigInt); return the int."""
+    if isinstance(value, str) and value.startswith("$n") and value[2:].isdigit():
+        return int(value[2:])
+    return value
+
+
+def fix_zip_posted_date(raw):
+    """Turn ZipRecruiter's "$n1794511320" posted time back into seconds JobSpy can read.
+
+    Since Nov 13 JobSpy 1.4.1 skipped every ZipRecruiter job with "datetime_from_date_parsing"."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("status"), dict):
+        return raw
+    status = raw["status"]
+    posted = status.get("postedAtUtc")
+    if isinstance(posted, dict) and "seconds" in posted:
+        fixed = {**posted, "seconds": _unwrap_bigint(posted["seconds"])}
+    else:
+        fixed = _unwrap_bigint(posted)
+    if fixed == posted:
+        return raw
+    return {**raw, "status": {**status, "postedAtUtc": fixed}}
+
+
+def _patch_ziprecruiter() -> None:
+    """Wrap JobSpy's ZipRecruiter job parser so it reads the new posted-time format."""
+    try:
+        from jobspy.ziprecruiter import ZipRecruiter
+    except Exception:  # JobSpy missing or laid out differently: nothing to patch
+        return
+    original = getattr(ZipRecruiter, "_process_job", None)
+    if original is None or getattr(original, "_jobengine_fixed", False):
+        return
+
+    def process_job(self, raw):
+        return original(self, fix_zip_posted_date(raw))
+
+    process_job._jobengine_fixed = True
+    ZipRecruiter._process_job = process_job
+
+
 class _BlockWatcher(logging.Handler):
     """JobSpy logs a 429 instead of raising it. Watch its log to know when a site blocks us."""
 
@@ -96,6 +137,7 @@ def scan(settings: dict, pause_seconds: tuple[float, float] = (3.0, 7.0)) -> lis
     except ImportError:
         log.warning('JobSpy not installed; run: pip install -e ".[jobspy]"')
         return []
+    _patch_ziprecruiter()
 
     watcher = _BlockWatcher()
     logging.getLogger("jobspy").addHandler(watcher)
