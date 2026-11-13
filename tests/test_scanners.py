@@ -228,3 +228,25 @@ def test_ziprecruiter_parser_is_wrapped_once(monkeypatch):
     boards._patch_ziprecruiter()
     raw = {"status": {"postedAtUtc": {"seconds": "$n1794511320"}}}
     assert ZipRecruiter()._process_job(raw) == 1794511320
+
+
+def test_zip_fix_parses_with_the_real_jobspy_model():
+    import pytest
+
+    model = pytest.importorskip("jobspy.ziprecruiter.model")
+    from jobengine.scanners.boards import fix_zip_posted_date
+
+    raw = {
+        "listingKey": "k1",
+        "title": "Finance Intern",
+        "status": {"postedAtUtc": {"seconds": "$n1794511320"}},
+        "employmentTypes": [],
+        "applyButtonConfig": {},
+        "company": {"name": "Acme"},
+        "companyUrl": None,
+        "rawCanonicalZipJobPageUrl": "https://www.ziprecruiter.com/c/Acme/Job/x",
+        "locationTypes": [],
+        "pay": {},
+    }
+    job = model.Job.model_validate(fix_zip_posted_date(raw))
+    assert int(job.postedAtUtc.timestamp()) == 1794511320
