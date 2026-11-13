@@ -3,7 +3,8 @@
 A Chromium window opens on the apply page (sign-ins are kept in data/browser-profile, so a
 Workday or Handshake login only happens once). Each answer is put in the field the board
 names (Greenhouse, Ashby), a known field (Lever), or the field with that label (anything else).
-Yes/No buttons (Ashby) need a click, so their answers are listed for you to pick.
+Yes/No buttons (Ashby), radio buttons and checkboxes (Lever) need a click, so their answers
+are listed for you to pick.
 Fields it can't find are listed for you. There is no code here that clicks a button: the
 page interface below has no click at all, so Submit is always yours.
 
@@ -169,6 +170,14 @@ def _put(page: FormPage, f: Field, packet: Packet) -> bool:
                 f'input[role="combobox"]{by_id}', f.answer
             )
         return page.fill(by_id, f.answer) or page.fill(sel, f.answer)
+    if packet.board == "lever" and f.name:
+        # A packet read from the real Lever page knows each input's name.
+        sel = f'[name="{_css_name(f.name)}"]'
+        if f.kind == "file":
+            return page.upload(f'input[type="file"]{sel}', f.answer)
+        if f.kind in ("select", "multiselect"):
+            return page.choose(f"select{sel}", f.answer)
+        return page.fill(sel, f.answer)
     if packet.board == "lever":
         sel = LEVER.get(f.label.strip().lower())
         if sel:
@@ -188,7 +197,7 @@ def fill_form(page: FormPage, packet: Packet) -> FillReport:
         if not f.answer:
             report.yours.append(f.label + (" (required)" if f.required else ""))
             continue
-        if f.kind == "boolean":
+        if f.kind in ("boolean", "choice"):
             report.yours.append(f"{f.label} (pick: {f.answer})")
             continue
         if packet.board == "lever" and f.label.lower() in ("first name", "last name"):

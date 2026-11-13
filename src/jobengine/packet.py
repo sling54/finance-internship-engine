@@ -5,8 +5,8 @@
   (your profile, a fixed rule, an AI draft for you to edit, or "you": left for you);
 - answers.json: the same, for `--fill`, which types them into the form in a browser.
 
-Greenhouse and Ashby forms are read from the board's public API, so the packet has the form's
-real questions, custom ones included. For other boards it uses the standard fields plus
+Greenhouse and Ashby forms are read from the board's public API, and Lever forms from the
+apply page itself, so the packet has the form's real questions, custom ones included. For other boards it uses the standard fields plus
 default_questions from config/apply.yml. Nothing is ever submitted for you.
 """
 
@@ -16,6 +16,7 @@ import json
 import logging
 import re
 from dataclasses import asdict, dataclass, field
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -37,7 +38,7 @@ MONTHS = "January February March April May June July August September October No
 class Field:
     label: str
     name: str = ""  # the form's field name, when the board says (Greenhouse)
-    kind: str = "text"  # text, textarea, file, select, multiselect, boolean, date
+    kind: str = "text"  # text, textarea, file, select, multiselect, boolean, choice, date
     required: bool = False
     options: list[str] = field(default_factory=list)
     answer: str = ""
@@ -184,6 +185,94 @@ def ashby_fields(data: dict) -> list[Field]:
     return out
 
 
+# Lever's own fields carry the same names on every company's apply page.
+LEVER_STANDARD = {
+    "resume": ("Resume/CV", "file"),
+    "name": ("Full name", "text"),
+    "email": ("Email", "text"),
+    "phone": ("Phone", "text"),
+    "location": ("Current location", "text"),
+    "org": ("Current company", "text"),
+    "urls[LinkedIn]": ("LinkedIn URL", "text"),
+    "urls[GitHub]": ("GitHub URL", "text"),
+    "urls[Portfolio]": ("Portfolio URL", "text"),
+    "urls[Other]": ("Other website", "text"),
+    "comments": ("Additional information", "textarea"),
+}
+# Lever custom-question types -> packet kinds. Radio buttons and checkboxes need a click,
+# which the filler never does, so their answers are shown for you to pick ("choice").
+LEVER_KINDS = {
+    "text": "text",
+    "textarea": "textarea",
+    "dropdown": "select",
+    "multiple-choice": "choice",
+    "multiple-select": "choice",
+    "file-upload": "file",
+}
+
+
+class _LeverForm(HTMLParser):
+    """Collects the named inputs of a Lever apply page, and each custom card's template."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.names: list[str] = []
+        self.required: set[str] = set()
+        self.cards: dict[str, dict] = {}
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in ("input", "textarea", "select"):
+            return
+        a = dict(attrs)
+        name = a.get("name") or ""
+        m = re.fullmatch(r"cards\[([^\]]+)\]\[baseTemplate\]", name)
+        if m:
+            try:
+                self.cards[m.group(1)] = json.loads(a.get("value") or "{}")
+            except ValueError:
+                pass
+            return
+        if not name or a.get("type") == "hidden":
+            return
+        if name not in self.names:
+            self.names.append(name)
+        if "required" in a:
+            self.required.add(name)
+
+
+def lever_fields(html: str) -> list[Field]:
+    """The fields of a Lever apply page: Lever's own (by name) and each custom card's questions,
+    in page order. Pronouns, EEO and the optional demographic survey are left out."""
+    form = _LeverForm()
+    form.feed(html or "")
+    out: list[Field] = []
+    done: set[str] = set()
+    for name in form.names:
+        if name in LEVER_STANDARD:
+            label, kind = LEVER_STANDARD[name]
+            out.append(Field(label, name=name, kind=kind, required=name in form.required))
+            continue
+        m = re.fullmatch(r"cards\[([^\]]+)\]\[field(\d+)\]", name)
+        if not m or (m.group(1), m.group(2)) in done:
+            continue
+        done.add((m.group(1), m.group(2)))
+        fields = form.cards.get(m.group(1), {}).get("fields") or []
+        i = int(m.group(2))
+        if i >= len(fields):
+            continue
+        q = fields[i]
+        out.append(
+            Field(
+                label=" ".join(str(q.get("text", "")).split()),
+                name=name,
+                kind=LEVER_KINDS.get(q.get("type", ""), "text"),
+                required=bool(q.get("required")),
+                options=[str(o.get("text", "")) for o in q.get("options") or []],
+            )
+        )
+    return out
+
+
 STANDARD = [
     ("First Name", "text"),
     ("Last Name", "text"),
@@ -307,7 +396,7 @@ def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[
 
 def is_open_question(f: Field) -> bool:
     """An essay-style question the AI may draft: a text box, or "Why...?", "Tell us...", etc."""
-    if f.kind in ("file", "select", "multiselect", "boolean", "date"):
+    if f.kind in ("file", "select", "multiselect", "boolean", "choice", "date"):
         return False
     label = normalize(f.label)
     return f.kind == "textarea" or bool(
@@ -422,17 +511,26 @@ def build(
         except Exception as exc:
             log.warning("couldn't read the Ashby form for %s: %s", url, exc)
         packet.apply_url = f"https://jobs.ashbyhq.com/{board}/{job_id}/application"
-    if not packet.fields:
-        packet.fields = standard_fields(settings)
     if packet.board == "lever" and not url.rstrip("/").endswith("/apply"):
         packet.apply_url = url.rstrip("/") + "/apply"
+    if packet.board == "lever" and get is not None and not packet.fields:
+        try:
+            resp = get(packet.apply_url)
+            if resp.status_code == 200:
+                packet.fields = lever_fields(resp.text)
+        except Exception as exc:
+            log.warning("couldn't read the Lever form for %s: %s", url, exc)
+    if not packet.fields:
+        packet.fields = standard_fields(settings)
 
     resume = root / profile.get("resume_path", "private/Resume.pdf")
     words = int(settings.get("max_answer_words", 150))
     for f in packet.fields:
         f.answer, f.source = rule_answer(f, profile, settings, resume)
-        if f.name == "resume_text":
-            continue  # the resume file is attached; never have the AI write a resume
+        if f.name in ("resume_text", "comments"):
+            # The resume file is attached, so never have the AI write a resume; Lever's
+            # optional "Additional information" box stays empty unless you write in it.
+            continue
         if not f.answer and is_open_question(f):
             drafted = draft_answer(client, f.label, packet, about, words)
             if drafted:

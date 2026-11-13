@@ -17,6 +17,7 @@ from jobengine.packet import (
     greenhouse_fields,
     greenhouse_job,
     is_open_question,
+    lever_fields,
     load,
     rule_answer,
     write,
@@ -615,3 +616,106 @@ def test_fill_ashby_by_field_id_and_leave_yes_no_buttons(root):
     )
     assert not any(c[0] == "upload_label" for c in page.calls)  # never the autofill upload
     assert "Are you legally authorized to work in the United States? (pick: Yes)" in report.yours
+
+
+# ---------- Lever: the real form from the apply page ----------
+
+LEVER_CARD = {
+    "text": "Work authorization",
+    "fields": [
+        {
+            "type": "multiple-choice",
+            "text": "Will you require visa sponsorship now or in the future?",
+            "required": True,
+            "options": [
+                {"text": "YES; I will require sponsorship"},
+                {"text": "NO; I will not require sponsorship"},
+            ],
+        },
+        {
+            "type": "dropdown",
+            "text": "When are you expecting to graduate?",
+            "required": True,
+            "options": [{"text": "Select..."}, {"text": "May 2027"}, {"text": "May 2028"}],
+        },
+        {"type": "textarea", "text": "What is your estimated start date?", "required": True},
+    ],
+}
+LEVER_HTML = f"""<html><body><form>
+<input type="file" name="resume" required>
+<input type="text" name="name" required>
+<input type="checkbox" name="pronouns" value="He/him">
+<input type="email" name="email" required>
+<input type="tel" name="phone">
+<input type="text" name="location">
+<input type="text" name="org">
+<input type="text" name="urls[LinkedIn]">
+<input type="hidden" name="cards[abc-1][baseTemplate]" value='{json.dumps(LEVER_CARD).replace("'", "&#39;")}'>
+<input type="radio" name="cards[abc-1][field0]" value="YES; I will require sponsorship">
+<input type="radio" name="cards[abc-1][field0]" value="NO; I will not require sponsorship">
+<select name="cards[abc-1][field1]"><option>Select...</option><option>May 2027</option></select>
+<textarea name="cards[abc-1][field2]"></textarea>
+<textarea name="comments"></textarea>
+<input type="radio" name="eeo[gender]" value="Female">
+<input type="radio" name="surveysResponses[x][responses][field0]" value="18-20">
+</form></body></html>"""
+LEVER_URL = "https://jobs.lever.co/sample/006928a3-9a6d-49a3-be4f-46d77f0bb302"
+
+
+class HTMLResponse:
+    def __init__(self, text, status=200):
+        self.text, self.status_code = text, status
+
+
+def test_lever_fields_follow_the_real_page():
+    fields = lever_fields(LEVER_HTML)
+    assert [(f.label, f.name, f.kind) for f in fields] == [
+        ("Resume/CV", "resume", "file"),
+        ("Full name", "name", "text"),
+        ("Email", "email", "text"),
+        ("Phone", "phone", "text"),
+        ("Current location", "location", "text"),
+        ("Current company", "org", "text"),
+        ("LinkedIn URL", "urls[LinkedIn]", "text"),
+        (
+            "Will you require visa sponsorship now or in the future?",
+            "cards[abc-1][field0]",
+            "choice",
+        ),
+        ("When are you expecting to graduate?", "cards[abc-1][field1]", "select"),
+        ("What is your estimated start date?", "cards[abc-1][field2]", "textarea"),
+        ("Additional information", "comments", "textarea"),
+    ]
+    assert fields[0].required and fields[2].required and not fields[3].required
+    assert fields[7].options[1] == "NO; I will not require sponsorship"
+
+
+def test_lever_packet_uses_the_real_page_and_fills_by_name(root):
+    calls = []
+
+    def get(url):
+        calls.append(url)
+        return HTMLResponse(LEVER_HTML)
+
+    row = {"company": "Sample Partners", "title": "Data Science Co-Op", "url": LEVER_URL}
+    packet = build(row, PROFILE, SETTINGS, root, FakeModel("unused"), get)
+    assert calls == [LEVER_URL + "/apply"]
+    by = {f.name: f for f in packet.fields}
+    assert by["name"].answer == PROFILE["name"]
+    assert by["cards[abc-1][field0]"].answer == "NO; I will not require sponsorship"
+    assert by["comments"].answer == ""  # the optional extra box is never AI-written
+    assert not any(f.label in SETTINGS["default_questions"] for f in packet.fields)
+    page = FakePage(names=["name", "email", "resume", "urls[LinkedIn]"])
+    report = fill_form(page, packet)
+    assert ("fill", '[name="name"]', PROFILE["name"]) in page.calls
+    assert "Full name" in report.filled and "Resume/CV" in report.filled
+    assert (
+        "Will you require visa sponsorship now or in the future? "
+        "(pick: NO; I will not require sponsorship)"
+    ) in report.yours
+
+
+def test_lever_page_failure_falls_back_to_standard_fields(root):
+    row = {"company": "Sample Partners", "title": "Data Science Co-Op", "url": LEVER_URL}
+    packet = build(row, PROFILE, SETTINGS, root, None, lambda url: HTMLResponse("", 404))
+    assert [f.label for f in packet.fields][:2] == ["First Name", "Last Name"]
