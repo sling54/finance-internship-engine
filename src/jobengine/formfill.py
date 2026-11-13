@@ -2,7 +2,8 @@
 
 A Chromium window opens on the apply page (sign-ins are kept in data/browser-profile, so a
 Workday or Handshake login only happens once). Each answer is put in the field the board
-names (Greenhouse), a known field (Lever), or the field with that label (anything else).
+names (Greenhouse, Ashby), a known field (Lever), or the field with that label (anything else).
+Yes/No buttons (Ashby) need a click, so their answers are listed for you to pick.
 Fields it can't find are listed for you. There is no code here that clicks a button: the
 page interface below has no click at all, so Submit is always yours.
 
@@ -156,6 +157,18 @@ def _put(page: FormPage, f: Field, packet: Packet) -> bool:
             or page.fill(by_id, f.answer)
             or page.fill_label(f.label, f.answer)
         )
+    if packet.board == "ashby" and f.name:
+        # Ashby gives each input its field path as id (and name, for text boxes). Files go
+        # only by id: the "Autofill from resume" upload would rewrite answers already typed.
+        name = _css_name(f.name)
+        sel, by_id = f'[name="{name}"]', f'[id="{name}"]'
+        if f.kind == "file":
+            return page.upload(f'input[type="file"]{by_id}', f.answer)
+        if f.kind in ("select", "multiselect"):
+            return page.choose(f"select{by_id}", f.answer) or page.pick(
+                f'input[role="combobox"]{by_id}', f.answer
+            )
+        return page.fill(by_id, f.answer) or page.fill(sel, f.answer)
     if packet.board == "lever":
         sel = LEVER.get(f.label.strip().lower())
         if sel:
@@ -174,6 +187,9 @@ def fill_form(page: FormPage, packet: Packet) -> FillReport:
             continue  # "Enter manually" box for a file already attached (resume, cover letter)
         if not f.answer:
             report.yours.append(f.label + (" (required)" if f.required else ""))
+            continue
+        if f.kind == "boolean":
+            report.yours.append(f"{f.label} (pick: {f.answer})")
             continue
         if packet.board == "lever" and f.label.lower() in ("first name", "last name"):
             if seen_lever_name:

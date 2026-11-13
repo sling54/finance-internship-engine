@@ -29,7 +29,7 @@ def _row(args, root: Path) -> dict | None:
     return None
 
 
-def run(args, cfg, root: Path, get=None, ask=input, fill=None) -> int:
+def run(args, cfg, root: Path, get=None, ask=input, fill=None, post=None) -> int:
     from .config import load_with_local
     from .http import TIMEOUT, session
     from .outreach.cli import local_model
@@ -57,7 +57,10 @@ def run(args, cfg, root: Path, get=None, ask=input, fill=None) -> int:
         def get(url):
             return http.get(url, timeout=TIMEOUT)
 
-    packet = build(row, cfg.profile, settings, root, client, get, about)
+        def post(url, body):
+            return http.post(url, json=body, timeout=TIMEOUT)
+
+    packet = build(row, cfg.profile, settings, root, client, get, about, post)
     folder = write(packet, root)
     counts = {
         s: sum(f.source == s for f in packet.fields) for s in ("profile", "rule", "ai", "you")
