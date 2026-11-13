@@ -10,11 +10,14 @@ from jobengine.config import CONFIG_DIR, Config, load_with_local, load_yaml
 from jobengine.formfill import FillReport, FormPage, fill_form
 from jobengine.packet import (
     Field,
+    ashby_fields,
+    ashby_job,
     board_of,
     build,
     greenhouse_fields,
     greenhouse_job,
     is_open_question,
+    lever_fields,
     load,
     rule_answer,
     write,
@@ -465,3 +468,270 @@ def test_command_needs_a_role(project, capsys):
 def test_fill_report_summary_lists_both_kinds():
     text = FillReport(["Email"], ["Phone"], ["Cover Letter"]).summary()
     assert "Couldn't place these" in text and "Left for you" in text
+
+
+# ---------- Ashby: the real form from Ashby's API ----------
+
+ASHBY_URL = (
+    "https://jobs.ashbyhq.com/samplecap/5e2ea37b-2369-474e-b717-c24c60976e96/application?embed=true"
+)
+
+
+def _ashby_entry(path, title, type_, required=True, values=None, hidden=False):
+    field = {"path": path, "title": title, "type": type_}
+    if values:
+        field["selectableValues"] = [{"label": v, "value": v} for v in values]
+    return {"field": field, "isRequired": required, "isHidden": hidden}
+
+
+ASHBY = {
+    "data": {
+        "jobPosting": {
+            "title": "Quant Research Intern",
+            "applicationForm": {
+                "sections": [
+                    {
+                        "fieldEntries": [
+                            _ashby_entry("_systemfield_name", "Name", "String"),
+                            _ashby_entry("_systemfield_email", "Email", "Email"),
+                            _ashby_entry("_systemfield_resume", "Resume", "File"),
+                            _ashby_entry(
+                                "q1",
+                                "Are you legally authorized to work in the United States?",
+                                "Boolean",
+                            ),
+                            _ashby_entry(
+                                "q2",
+                                "Will you now or in the future require sponsorship for "
+                                "employment visa status in the United States?",
+                                "Boolean",
+                            ),
+                            _ashby_entry(
+                                "q3",
+                                "Please select all academic terms you are available",
+                                "MultiValueSelect",
+                                values=["Fall (Sept - Dec)", "Summer (June - Aug)"],
+                            ),
+                            _ashby_entry(
+                                "q4",
+                                "Are you currently enrolled in an accredited undergraduate or "
+                                "graduate program? What's the name of the school / program? "
+                                "What is your expected graduation month and year?",
+                                "LongText",
+                            ),
+                            _ashby_entry("q5", "Earliest start date?", "Date"),
+                            _ashby_entry("q6", "Secret", "String", hidden=True),
+                        ]
+                    },
+                    {"isHidden": True, "fieldEntries": [_ashby_entry("q7", "Hidden", "String")]},
+                ]
+            },
+        }
+    }
+}
+
+
+def fake_post(calls=None, status=200, data=ASHBY):
+    def post(url, body):
+        if calls is not None:
+            calls.append((url, body))
+        return FakeResponse(status, data)
+
+    return post
+
+
+def test_ashby_job_ids():
+    assert ashby_job(ASHBY_URL) == ("samplecap", "5e2ea37b-2369-474e-b717-c24c60976e96")
+    assert ashby_job("https://jobs.ashbyhq.com/samplecap") is None
+    assert ashby_job("https://example.com/samplecap/5e2ea37b-2369-474e-b717-c24c60976e96") is None
+
+
+def test_ashby_fields_follow_the_real_form():
+    fields = ashby_fields(ASHBY)
+    assert [f.name for f in fields] == [
+        "_systemfield_name",
+        "_systemfield_email",
+        "_systemfield_resume",
+        "q1",
+        "q2",
+        "q3",
+        "q4",
+        "q5",
+    ]
+    kinds = {f.name: f.kind for f in fields}
+    assert kinds["_systemfield_resume"] == "file" and kinds["q1"] == "boolean"
+    assert kinds["q3"] == "multiselect" and kinds["q4"] == "textarea" and kinds["q5"] == "date"
+    assert fields[3].options == ["Yes", "No"]
+    assert ashby_fields({"errors": [{"message": "bad"}]}) == []
+
+
+def test_ashby_packet_uses_the_real_form(root):
+    calls = []
+    model = FakeModel("I am a finance major and want to bring that to systematic research.")
+    row = {"company": "Sample Capital", "title": "Quant Research Intern", "url": ASHBY_URL}
+    packet = build(
+        row,
+        PROFILE,
+        SETTINGS,
+        root,
+        model,
+        fake_get(),
+        about="Finance major",
+        post=fake_post(calls),
+    )
+    assert calls[0][0].startswith("https://jobs.ashbyhq.com/api/non-user-graphql")
+    assert calls[0][1]["variables"] == {
+        "organizationHostedJobsPageName": "samplecap",
+        "jobPostingId": "5e2ea37b-2369-474e-b717-c24c60976e96",
+    }
+    assert packet.apply_url == (
+        "https://jobs.ashbyhq.com/samplecap/5e2ea37b-2369-474e-b717-c24c60976e96/application"
+    )
+    by = {f.name: f for f in packet.fields}
+    assert by["_systemfield_name"].answer == PROFILE["name"]
+    assert by["_systemfield_resume"].answer.endswith(PROFILE["resume_path"])
+    assert by["q2"].answer == "No"  # the example profile is a US citizen
+    assert by["q4"].source == "ai"  # a three-part essay box is drafted, not one profile value
+    assert by["q5"].source == "you"
+    assert not any(f.label in SETTINGS["default_questions"] for f in packet.fields)
+
+
+def test_ashby_api_failure_falls_back_to_standard_fields(root):
+    row = {"company": "Sample Capital", "title": "Quant Research Intern", "url": ASHBY_URL}
+    packet = build(row, PROFILE, SETTINGS, root, None, fake_get(), post=fake_post(status=500))
+    assert [f.label for f in packet.fields][:2] == ["First Name", "Last Name"]
+    packet = build(row, PROFILE, SETTINGS, root, None, fake_get())  # no post: standard fields
+    assert [f.label for f in packet.fields][:2] == ["First Name", "Last Name"]
+
+
+def test_fill_ashby_by_field_id_and_leave_yes_no_buttons(root):
+    row = {"company": "Sample Capital", "title": "Quant Research Intern", "url": ASHBY_URL}
+    packet = build(row, PROFILE, SETTINGS, root, None, fake_get(), post=fake_post())
+    page = FakePage(names=["_systemfield_name", "_systemfield_email", "_systemfield_resume"])
+    report = fill_form(page, packet)
+    assert report.filled == ["Name", "Email", "Resume"]
+    assert ("fill", '[id="_systemfield_name"]', PROFILE["name"]) in page.calls
+    assert any(
+        c[:2] == ("upload", 'input[type="file"][id="_systemfield_resume"]') for c in page.calls
+    )
+    assert not any(c[0] == "upload_label" for c in page.calls)  # never the autofill upload
+    assert "Are you legally authorized to work in the United States? (pick: Yes)" in report.yours
+
+
+# ---------- Lever: the real form from the apply page ----------
+
+LEVER_CARD = {
+    "text": "Work authorization",
+    "fields": [
+        {
+            "type": "multiple-choice",
+            "text": "Will you require visa sponsorship now or in the future?",
+            "required": True,
+            "options": [
+                {"text": "YES; I will require sponsorship"},
+                {"text": "NO; I will not require sponsorship"},
+            ],
+        },
+        {
+            "type": "dropdown",
+            "text": "When are you expecting to graduate?",
+            "required": True,
+            "options": [{"text": "Select..."}, {"text": "May 2027"}, {"text": "May 2028"}],
+        },
+        {"type": "textarea", "text": "What is your estimated start date?", "required": True},
+    ],
+}
+LEVER_HTML = f"""<html><body><form>
+<input type="file" name="resume" required>
+<input type="text" name="name" required>
+<input type="checkbox" name="pronouns" value="He/him">
+<input type="email" name="email" required>
+<input type="tel" name="phone">
+<input type="text" name="location">
+<input type="text" name="org">
+<input type="text" name="urls[LinkedIn]">
+<input type="hidden" name="cards[abc-1][baseTemplate]" value='{json.dumps(LEVER_CARD).replace("'", "&#39;")}'>
+<input type="radio" name="cards[abc-1][field0]" value="YES; I will require sponsorship">
+<input type="radio" name="cards[abc-1][field0]" value="NO; I will not require sponsorship">
+<select name="cards[abc-1][field1]"><option>Select...</option><option>May 2027</option></select>
+<textarea name="cards[abc-1][field2]"></textarea>
+<textarea name="comments"></textarea>
+<input type="radio" name="eeo[gender]" value="Female">
+<input type="radio" name="surveysResponses[x][responses][field0]" value="18-20">
+</form></body></html>"""
+LEVER_URL = "https://jobs.lever.co/sample/006928a3-9a6d-49a3-be4f-46d77f0bb302"
+
+
+class HTMLResponse:
+    def __init__(self, text, status=200):
+        self.text, self.status_code = text, status
+
+
+def test_lever_fields_follow_the_real_page():
+    fields = lever_fields(LEVER_HTML)
+    assert [(f.label, f.name, f.kind) for f in fields] == [
+        ("Resume/CV", "resume", "file"),
+        ("Full name", "name", "text"),
+        ("Email", "email", "text"),
+        ("Phone", "phone", "text"),
+        ("Current location", "location", "text"),
+        ("Current company", "org", "text"),
+        ("LinkedIn URL", "urls[LinkedIn]", "text"),
+        (
+            "Will you require visa sponsorship now or in the future?",
+            "cards[abc-1][field0]",
+            "choice",
+        ),
+        ("When are you expecting to graduate?", "cards[abc-1][field1]", "select"),
+        ("What is your estimated start date?", "cards[abc-1][field2]", "textarea"),
+        ("Additional information", "comments", "textarea"),
+    ]
+    assert fields[0].required and fields[2].required and not fields[3].required
+    assert fields[7].options[1] == "NO; I will not require sponsorship"
+
+
+def test_lever_packet_uses_the_real_page_and_fills_by_name(root):
+    calls = []
+
+    def get(url):
+        calls.append(url)
+        return HTMLResponse(LEVER_HTML)
+
+    row = {"company": "Sample Partners", "title": "Data Science Co-Op", "url": LEVER_URL}
+    packet = build(row, PROFILE, SETTINGS, root, FakeModel("unused"), get)
+    assert calls == [LEVER_URL + "/apply"]
+    by = {f.name: f for f in packet.fields}
+    assert by["name"].answer == PROFILE["name"]
+    assert by["cards[abc-1][field0]"].answer == "NO; I will not require sponsorship"
+    assert by["comments"].answer == ""  # the optional extra box is never AI-written
+    assert not any(f.label in SETTINGS["default_questions"] for f in packet.fields)
+    page = FakePage(names=["name", "email", "resume", "urls[LinkedIn]"])
+    report = fill_form(page, packet)
+    assert ("fill", '[name="name"]', PROFILE["name"]) in page.calls
+    assert "Full name" in report.filled and "Resume/CV" in report.filled
+    assert (
+        "Will you require visa sponsorship now or in the future? "
+        "(pick: NO; I will not require sponsorship)"
+    ) in report.yours
+
+
+def test_lever_page_failure_falls_back_to_standard_fields(root):
+    row = {"company": "Sample Partners", "title": "Data Science Co-Op", "url": LEVER_URL}
+    packet = build(row, PROFILE, SETTINGS, root, None, lambda url: HTMLResponse("", 404))
+    assert [f.label for f in packet.fields][:2] == ["First Name", "Last Name"]
+
+
+def test_graduation_dropdown_worded_by_term():
+    f = Field(
+        "When are you expecting to graduate from college/university?",
+        kind="select",
+        options=["Fall/December 2027", "Spring 2028", "Summer 2028"],
+    )
+    for grad, want in (("2028-05", "Spring 2028"), ("2028-06", "Summer 2028")):
+        answer = rule_answer(f, {**PROFILE, "graduation": grad}, SETTINGS, Path("none"))
+        assert answer == (want, "rule")
+    f.options = ["May 2028", "Spring 2028"]  # a month option still wins
+    assert (
+        rule_answer(f, {**PROFILE, "graduation": "2028-05"}, SETTINGS, Path("none"))[0]
+        == "May 2028"
+    )

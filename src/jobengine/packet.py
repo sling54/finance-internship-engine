@@ -5,8 +5,8 @@
   (your profile, a fixed rule, an AI draft for you to edit, or "you": left for you);
 - answers.json: the same, for `--fill`, which types them into the form in a browser.
 
-Greenhouse forms are read from Greenhouse's public job API, so the packet has the form's
-real questions, custom ones included. For other boards it uses the standard fields plus
+Greenhouse and Ashby forms are read from the board's public API, and Lever forms from the
+apply page itself, so the packet has the form's real questions, custom ones included. For other boards it uses the standard fields plus
 default_questions from config/apply.yml. Nothing is ever submitted for you.
 """
 
@@ -16,6 +16,7 @@ import json
 import logging
 import re
 from dataclasses import asdict, dataclass, field
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -37,7 +38,7 @@ MONTHS = "January February March April May June July August September October No
 class Field:
     label: str
     name: str = ""  # the form's field name, when the board says (Greenhouse)
-    kind: str = "text"  # text, textarea, file, select, multiselect
+    kind: str = "text"  # text, textarea, file, select, multiselect, boolean, choice, date
     required: bool = False
     options: list[str] = field(default_factory=list)
     answer: str = ""
@@ -113,6 +114,165 @@ def greenhouse_fields(data: dict) -> list[Field]:
     return out
 
 
+ASHBY_GRAPHQL = "https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobPosting"
+ASHBY_QUERY = """query ApiJobPosting($organizationHostedJobsPageName: String!, $jobPostingId: String!) {
+  jobPosting(organizationHostedJobsPageName: $organizationHostedJobsPageName, jobPostingId: $jobPostingId) {
+    id
+    title
+    applicationForm {
+      sections {
+        isHidden
+        fieldEntries {
+          ... on FormFieldEntry { id field isRequired isHidden }
+        }
+      }
+    }
+  }
+}"""
+# Ashby field types -> packet kinds. Boolean is a pair of Yes/No buttons the filler can't
+# press (it never clicks), so those answers are shown for you to pick.
+ASHBY_KINDS = {
+    "String": "text",
+    "Email": "text",
+    "Phone": "text",
+    "Number": "text",
+    "SocialLink": "text",
+    "LongText": "textarea",
+    "File": "file",
+    "ValueSelect": "select",
+    "MultiValueSelect": "multiselect",
+    "Boolean": "boolean",
+    "Date": "date",
+    "Location": "text",
+}
+
+
+def ashby_job(url: str) -> tuple[str, str] | None:
+    """(job board name, job posting id) from a jobs.ashbyhq.com link, or None."""
+    parts = urlsplit(url)
+    if (parts.hostname or "").lower() != "jobs.ashbyhq.com":
+        return None
+    seg = [s for s in parts.path.split("/") if s]
+    if len(seg) >= 2 and re.fullmatch(r"[0-9a-fA-F-]{36}", seg[1]):
+        return seg[0], seg[1]
+    return None
+
+
+def ashby_fields(data: dict) -> list[Field]:
+    """The form's fields from Ashby's ApiJobPosting answer, in the order the form shows them."""
+    posting = ((data or {}).get("data") or {}).get("jobPosting") or {}
+    out = []
+    for section in (posting.get("applicationForm") or {}).get("sections") or []:
+        if section.get("isHidden"):
+            continue
+        for entry in section.get("fieldEntries") or []:
+            f = entry.get("field") or {}
+            if entry.get("isHidden") or not f.get("path"):
+                continue
+            kind = ASHBY_KINDS.get(f.get("type", ""), "text")
+            options = [str(v.get("label", "")) for v in f.get("selectableValues") or []]
+            if kind == "boolean":
+                options = ["Yes", "No"]
+            out.append(
+                Field(
+                    label=" ".join(str(f.get("title", "")).split()),
+                    name=f["path"],
+                    kind=kind,
+                    required=bool(entry.get("isRequired")),
+                    options=options,
+                )
+            )
+    return out
+
+
+# Lever's own fields carry the same names on every company's apply page.
+LEVER_STANDARD = {
+    "resume": ("Resume/CV", "file"),
+    "name": ("Full name", "text"),
+    "email": ("Email", "text"),
+    "phone": ("Phone", "text"),
+    "location": ("Current location", "text"),
+    "org": ("Current company", "text"),
+    "urls[LinkedIn]": ("LinkedIn URL", "text"),
+    "urls[GitHub]": ("GitHub URL", "text"),
+    "urls[Portfolio]": ("Portfolio URL", "text"),
+    "urls[Other]": ("Other website", "text"),
+    "comments": ("Additional information", "textarea"),
+}
+# Lever custom-question types -> packet kinds. Radio buttons and checkboxes need a click,
+# which the filler never does, so their answers are shown for you to pick ("choice").
+LEVER_KINDS = {
+    "text": "text",
+    "textarea": "textarea",
+    "dropdown": "select",
+    "multiple-choice": "choice",
+    "multiple-select": "choice",
+    "file-upload": "file",
+}
+
+
+class _LeverForm(HTMLParser):
+    """Collects the named inputs of a Lever apply page, and each custom card's template."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.names: list[str] = []
+        self.required: set[str] = set()
+        self.cards: dict[str, dict] = {}
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in ("input", "textarea", "select"):
+            return
+        a = dict(attrs)
+        name = a.get("name") or ""
+        m = re.fullmatch(r"cards\[([^\]]+)\]\[baseTemplate\]", name)
+        if m:
+            try:
+                self.cards[m.group(1)] = json.loads(a.get("value") or "{}")
+            except ValueError:
+                pass
+            return
+        if not name or a.get("type") == "hidden":
+            return
+        if name not in self.names:
+            self.names.append(name)
+        if "required" in a:
+            self.required.add(name)
+
+
+def lever_fields(html: str) -> list[Field]:
+    """The fields of a Lever apply page: Lever's own (by name) and each custom card's questions,
+    in page order. Pronouns, EEO and the optional demographic survey are left out."""
+    form = _LeverForm()
+    form.feed(html or "")
+    out: list[Field] = []
+    done: set[str] = set()
+    for name in form.names:
+        if name in LEVER_STANDARD:
+            label, kind = LEVER_STANDARD[name]
+            out.append(Field(label, name=name, kind=kind, required=name in form.required))
+            continue
+        m = re.fullmatch(r"cards\[([^\]]+)\]\[field(\d+)\]", name)
+        if not m or (m.group(1), m.group(2)) in done:
+            continue
+        done.add((m.group(1), m.group(2)))
+        fields = form.cards.get(m.group(1), {}).get("fields") or []
+        i = int(m.group(2))
+        if i >= len(fields):
+            continue
+        q = fields[i]
+        out.append(
+            Field(
+                label=" ".join(str(q.get("text", "")).split()),
+                name=name,
+                kind=LEVER_KINDS.get(q.get("type", ""), "text"),
+                required=bool(q.get("required")),
+                options=[str(o.get("text", "")) for o in q.get("options") or []],
+            )
+        )
+    return out
+
+
 STANDARD = [
     ("First Name", "text"),
     ("Last Name", "text"),
@@ -150,6 +310,16 @@ def _graduation(value: str) -> str:
     return f"{MONTHS.split()[int(m.group(2)) - 1]} {m.group(1)}" if m else str(value or "")
 
 
+def _grad_season(value: str) -> str:
+    """2028-05 -> "Spring 2028", for dropdowns that list terms instead of months."""
+    m = re.fullmatch(r"(\d{4})-(\d{2})", str(value or ""))
+    if not m:
+        return ""
+    month = int(m.group(2))
+    season = "Spring" if month <= 5 else "Summer" if month <= 8 else "Fall"
+    return f"{season} {m.group(1)}"
+
+
 def _option(options: list[str], wanted: str) -> str:
     """The option that matches the wanted answer, or "" if none does."""
     want = normalize(wanted)
@@ -165,6 +335,10 @@ def _option(options: list[str], wanted: str) -> str:
 def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[str, str]:
     """(answer, source) from your profile or a fixed rule, or ("", "you")."""
     label = normalize(f.label)
+    if f.kind == "textarea" and len(label.split()) > 12:
+        # A long essay box that asks several things at once ("Which school, what program and
+        # when do you graduate?") needs a sentence, not one profile value; the AI drafts it.
+        return "", "you"
     first, last = _first_last(profile.get("name", ""))
     auth = profile.get("work_authorization", "")
     is_free = auth in ("us_citizen", "permanent_resident")
@@ -212,6 +386,8 @@ def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[
         found = settings.get("willing_to_relocate", "")
     elif has("contact method", "preferred method of contact"):
         found = settings.get("preferred_contact_method", "Email")
+    elif has("graduation", "grad date", "expecting to graduate"):
+        found = _graduation(profile.get("graduation", ""))
     elif has("school", "university", "college", "institution"):
         found = profile.get("school", "")
     elif has("degree"):
@@ -220,19 +396,20 @@ def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[
         found = profile.get("major", "")
     elif has("gpa", "cgpa", "grade point"):
         found = str(profile.get("gpa", "") or "")
-    elif has("graduation", "grad date"):
-        found = _graduation(profile.get("graduation", ""))
     if not found:
         return "", "you"
     if f.options:  # a dropdown: the answer must be one of its options
-        found = _option(f.options, found)
+        wanted = found
+        found = _option(f.options, wanted)
+        if not found and has("graduation", "grad date", "graduate"):
+            found = _option(f.options, _grad_season(profile.get("graduation", "")))
         return (found, "rule") if found else ("", "you")
     return found, "profile"
 
 
 def is_open_question(f: Field) -> bool:
     """An essay-style question the AI may draft: a text box, or "Why...?", "Tell us...", etc."""
-    if f.kind in ("file", "select", "multiselect"):
+    if f.kind in ("file", "select", "multiselect", "boolean", "choice", "date"):
         return False
     label = normalize(f.label)
     return f.kind == "textarea" or bool(
@@ -303,6 +480,7 @@ def build(
     client=None,
     get=None,
     about: str = "",
+    post=None,
 ) -> Packet:
     url = row.get("url", "")
     packet = Packet(
@@ -326,17 +504,46 @@ def build(
                 packet.description = packet.description or html_to_text(data.get("content", ""))
         except Exception as exc:
             log.warning("couldn't read the Greenhouse form for %s: %s", url, exc)
-    if not packet.fields:
-        packet.fields = standard_fields(settings)
+    ashby = ashby_job(url) if packet.board == "ashby" else None
+    if ashby and post is not None:
+        board, job_id = ashby
+        try:
+            resp = post(
+                ASHBY_GRAPHQL,
+                {
+                    "operationName": "ApiJobPosting",
+                    "variables": {"organizationHostedJobsPageName": board, "jobPostingId": job_id},
+                    "query": ASHBY_QUERY,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                packet.fields = ashby_fields(data)
+                if not packet.fields and data.get("errors"):
+                    log.warning("Ashby didn't return the form for %s: %s", url, data["errors"][0])
+        except Exception as exc:
+            log.warning("couldn't read the Ashby form for %s: %s", url, exc)
+        packet.apply_url = f"https://jobs.ashbyhq.com/{board}/{job_id}/application"
     if packet.board == "lever" and not url.rstrip("/").endswith("/apply"):
         packet.apply_url = url.rstrip("/") + "/apply"
+    if packet.board == "lever" and get is not None and not packet.fields:
+        try:
+            resp = get(packet.apply_url)
+            if resp.status_code == 200:
+                packet.fields = lever_fields(resp.text)
+        except Exception as exc:
+            log.warning("couldn't read the Lever form for %s: %s", url, exc)
+    if not packet.fields:
+        packet.fields = standard_fields(settings)
 
     resume = root / profile.get("resume_path", "private/Resume.pdf")
     words = int(settings.get("max_answer_words", 150))
     for f in packet.fields:
         f.answer, f.source = rule_answer(f, profile, settings, resume)
-        if f.name == "resume_text":
-            continue  # the resume file is attached; never have the AI write a resume
+        if f.name in ("resume_text", "comments"):
+            # The resume file is attached, so never have the AI write a resume; Lever's
+            # optional "Additional information" box stays empty unless you write in it.
+            continue
         if not f.answer and is_open_question(f):
             drafted = draft_answer(client, f.label, packet, about, words)
             if drafted:
