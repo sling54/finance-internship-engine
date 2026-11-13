@@ -719,3 +719,19 @@ def test_lever_page_failure_falls_back_to_standard_fields(root):
     row = {"company": "Sample Partners", "title": "Data Science Co-Op", "url": LEVER_URL}
     packet = build(row, PROFILE, SETTINGS, root, None, lambda url: HTMLResponse("", 404))
     assert [f.label for f in packet.fields][:2] == ["First Name", "Last Name"]
+
+
+def test_graduation_dropdown_worded_by_term():
+    f = Field(
+        "When are you expecting to graduate from college/university?",
+        kind="select",
+        options=["Fall/December 2027", "Spring 2028", "Summer 2028"],
+    )
+    for grad, want in (("2028-05", "Spring 2028"), ("2028-06", "Summer 2028")):
+        answer = rule_answer(f, {**PROFILE, "graduation": grad}, SETTINGS, Path("none"))
+        assert answer == (want, "rule")
+    f.options = ["May 2028", "Spring 2028"]  # a month option still wins
+    assert (
+        rule_answer(f, {**PROFILE, "graduation": "2028-05"}, SETTINGS, Path("none"))[0]
+        == "May 2028"
+    )

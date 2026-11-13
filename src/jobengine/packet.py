@@ -310,6 +310,16 @@ def _graduation(value: str) -> str:
     return f"{MONTHS.split()[int(m.group(2)) - 1]} {m.group(1)}" if m else str(value or "")
 
 
+def _grad_season(value: str) -> str:
+    """2028-05 -> "Spring 2028", for dropdowns that list terms instead of months."""
+    m = re.fullmatch(r"(\d{4})-(\d{2})", str(value or ""))
+    if not m:
+        return ""
+    month = int(m.group(2))
+    season = "Spring" if month <= 5 else "Summer" if month <= 8 else "Fall"
+    return f"{season} {m.group(1)}"
+
+
 def _option(options: list[str], wanted: str) -> str:
     """The option that matches the wanted answer, or "" if none does."""
     want = normalize(wanted)
@@ -376,6 +386,8 @@ def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[
         found = settings.get("willing_to_relocate", "")
     elif has("contact method", "preferred method of contact"):
         found = settings.get("preferred_contact_method", "Email")
+    elif has("graduation", "grad date", "expecting to graduate"):
+        found = _graduation(profile.get("graduation", ""))
     elif has("school", "university", "college", "institution"):
         found = profile.get("school", "")
     elif has("degree"):
@@ -384,12 +396,13 @@ def rule_answer(f: Field, profile: dict, settings: dict, resume: Path) -> tuple[
         found = profile.get("major", "")
     elif has("gpa", "cgpa", "grade point"):
         found = str(profile.get("gpa", "") or "")
-    elif has("graduation", "grad date"):
-        found = _graduation(profile.get("graduation", ""))
     if not found:
         return "", "you"
     if f.options:  # a dropdown: the answer must be one of its options
-        found = _option(f.options, found)
+        wanted = found
+        found = _option(f.options, wanted)
+        if not found and has("graduation", "grad date", "graduate"):
+            found = _option(f.options, _grad_season(profile.get("graduation", "")))
         return (found, "rule") if found else ("", "you")
     return found, "profile"
 
