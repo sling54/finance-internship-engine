@@ -195,3 +195,36 @@ def test_jobspy_gives_up_on_a_site_that_hangs(monkeypatch):
     release.set()
     assert calls.count("zip_recruiter") == 1  # skipped after the first hang
     assert len(jobs) == 2 and all(j.source == "jobspy:indeed" for j in jobs)
+
+
+def test_zip_posted_date_reads_serialized_bigint():
+    from jobengine.scanners.boards import fix_zip_posted_date
+
+    raw = {"title": "Intern", "status": {"postedAtUtc": {"seconds": "$n1794511320"}, "x": 1}}
+    fixed = fix_zip_posted_date(raw)
+    assert fixed["status"] == {"postedAtUtc": {"seconds": 1794511320}, "x": 1}
+    assert raw["status"]["postedAtUtc"]["seconds"] == "$n1794511320"  # input left alone
+    assert fix_zip_posted_date({"status": {"postedAtUtc": "$n17"}})["status"]["postedAtUtc"] == 17
+    plain = {"status": {"postedAtUtc": "2026-11-12T10:00:00Z"}}
+    assert fix_zip_posted_date(plain) is plain
+    assert fix_zip_posted_date({"title": "no status"}) == {"title": "no status"}
+
+
+def test_ziprecruiter_parser_is_wrapped_once(monkeypatch):
+    import sys
+    import types
+
+    from jobengine.scanners import boards
+
+    class ZipRecruiter:
+        def _process_job(self, raw):
+            return raw["status"]["postedAtUtc"]["seconds"]
+
+    module = types.ModuleType("jobspy.ziprecruiter")
+    module.ZipRecruiter = ZipRecruiter
+    monkeypatch.setitem(sys.modules, "jobspy", types.ModuleType("jobspy"))
+    monkeypatch.setitem(sys.modules, "jobspy.ziprecruiter", module)
+    boards._patch_ziprecruiter()
+    boards._patch_ziprecruiter()
+    raw = {"status": {"postedAtUtc": {"seconds": "$n1794511320"}}}
+    assert ZipRecruiter()._process_job(raw) == 1794511320
