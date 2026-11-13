@@ -118,7 +118,6 @@ ASHBY_QUERY = """query ApiJobPosting($organizationHostedJobsPageName: String!, $
   jobPosting(organizationHostedJobsPageName: $organizationHostedJobsPageName, jobPostingId: $jobPostingId) {
     id
     title
-    descriptionPlainText
     applicationForm {
       sections {
         isHidden
@@ -420,8 +419,6 @@ def build(
                 packet.fields = ashby_fields(data)
                 if not packet.fields and data.get("errors"):
                     log.warning("Ashby didn't return the form for %s: %s", url, data["errors"][0])
-                posting = (data.get("data") or {}).get("jobPosting") or {}
-                packet.description = packet.description or posting.get("descriptionPlainText", "")
         except Exception as exc:
             log.warning("couldn't read the Ashby form for %s: %s", url, exc)
         packet.apply_url = f"https://jobs.ashbyhq.com/{board}/{job_id}/application"

@@ -487,7 +487,6 @@ ASHBY = {
     "data": {
         "jobPosting": {
             "title": "Quant Research Intern",
-            "descriptionPlainText": "Research systematic strategies.",
             "applicationForm": {
                 "sections": [
                     {
@@ -587,7 +586,6 @@ def test_ashby_packet_uses_the_real_form(root):
     assert packet.apply_url == (
         "https://jobs.ashbyhq.com/samplecap/5e2ea37b-2369-474e-b717-c24c60976e96/application"
     )
-    assert packet.description == "Research systematic strategies."
     by = {f.name: f for f in packet.fields}
     assert by["_systemfield_name"].answer == PROFILE["name"]
     assert by["_systemfield_resume"].answer.endswith(PROFILE["resume_path"])
